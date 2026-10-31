@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -651,7 +651,7 @@ function viewDiary() {
     <h2>${t('Pours')} <span class="sub">${groups.length}</span></h2>
     ${groups.map((g) => `<div class="item" style="margin-bottom:8px">
       <div class="t">${esc(g.k)}</div>
-      <div class="m">${g.n} ${t('Batches').toLowerCase()} · ${nf(g.vol, 2)} m³ · ${nf(g.C, 0)} kg ${t('Cement').toLowerCase()} · ${LANG === 'id' ? 'slump rata-rata' : 'avg slump'} ${g.slumps.length ? nf(g.slumps.reduce((a, b) => a + b, 0) / g.slumps.length, 1) : '—'} cm</div>
+      <div class="m">${g.n} ${g.n === 1 ? t('Batch') : t('Batches').toLowerCase()} · ${nf(g.vol, 2)} m³ · ${nf(g.C, 0)} kg ${t('Cement').toLowerCase()} · ${LANG === 'id' ? 'slump rata-rata' : 'avg slump'} ${g.slumps.length ? nf(g.slumps.reduce((a, b) => a + b, 0) / g.slumps.length, 1) : '—'} cm</div>
       ${g.due ? `<div class="m" style="color:var(--danger);font-weight:700">${g.due} ${LANG === 'id' ? 'uji kubus jatuh tempo' : (g.due === 1 ? 'cube test due' : 'cube tests due')}</div>` : ''}
     </div>`).join('')}
     ${ungrouped ? `<div class="fine">${ungrouped} ${LANG === 'id' ? 'campuran tanpa label coran' : (ungrouped === 1 ? 'batch without a pour label' : 'batches without a pour label')}</div>` : ''}
