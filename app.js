@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.1.1';
+const VERSION = '1.1.2';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -498,7 +498,12 @@ function viewSlump() {
   } else if (inBand) {
     guidance = `<div class="note ok"><b>${t('Ready')}</b> — ${LANG === 'id' ? 'slump dalam target. Tekan Selesai.' : 'slump is in the band. Press Finish batch.'}</div>`;
   } else if (overWet) {
-    const excess = Math.max(0, L.poured - L.ceilingNet);
+    /* Above the band. Two causes: more water in the drum than the ceiling allows,
+       or the aggregate carried more free water than we credited. If the drum is
+       still under the ceiling, estimate the surplus from the slump overshoot
+       (k L/cm) so the advice is never "+0.0 kg". */
+    const overshoot = Math.max(0, last - hi) * (+S.kPerM3PerCm || 2.4) * L.vol;
+    const excess = Math.max(0, L.poured - L.ceilingNet, overshoot);
     const dC = excess > 0 ? excess / L.wc : 0;
     guidance = `<div class="note danger"><b>${LANG === 'id' ? 'Terlalu basah' : 'Too wet'}</b> — ${LANG === 'id' ? 'jangan tambah air. Tambah semen + agregat proporsional:' : 'no more water. Add cement + aggregate proportionally:'}
       <br><b>+${nf(dC, 1)} kg ${t('Cement')} · +${nf(dC * L.g.sand, 1)} kg ${t('Sand')} · +${nf(dC * L.g.gravel, 1)} kg ${t('Gravel')}</b>
@@ -524,6 +529,9 @@ function viewSlump() {
     : '';
 
   const chip = (v) => `<button data-chip="${v}" class="${last === v ? 'on' : ''}">${v}</button>`;
+  /* Quick-pick slumps follow the batch target (16 ± 2 needs 18 on the list too). */
+  const tgtC = Math.round(effTarget(L));
+  const chips = [tgtC - 6, tgtC - 4, tgtC - 2, tgtC, tgtC + 2, tgtC + 4].filter((v) => v > 0);
 
   return `
   <div class="card">
@@ -539,7 +547,7 @@ function viewSlump() {
     <h2>${t('Record slump')}</h2>
     <label class="field" style="margin-bottom:0"><span class="lbl">${t('Slump')} (cm)</span>
       <input type="number" inputmode="decimal" step="0.5" min="0" max="30" id="slumpIn" value="${last == null ? '' : last}" placeholder="—" style="font-size:30px"></label>
-    <div class="quick" style="grid-template-columns:repeat(3,1fr)">${[4, 6, 8, 10, 12, 14].map(chip).join('')}</div>
+    <div class="quick" style="grid-template-columns:repeat(3,1fr)">${chips.map(chip).join('')}</div>
     <button class="primary wide" data-action="slump-rec">${t('Record slump')}</button>
     <div class="row" style="margin-top:10px">
       <button class="dark" data-action="slump-finish">${t('Finish batch')}</button>
