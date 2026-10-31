@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.6.0';
+const VERSION = '1.7.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -516,7 +516,7 @@ function syncBatch() {
   const row = document.getElementById('row-sp'); if (row) row.style.display = s.spL > 0 ? '' : 'none';
 
   const w = [];
-  if (pct > 60) w.push(`<div class="note danger"><b>${t('Over capacity')}</b> — ${nf(s.vol, 3)} m³ = ${pct}% ${LANG === 'id' ? 'dari molen' : 'of the mixer'}. ${LANG === 'id' ? 'Kurangi karung.' : 'Reduce sacks.'}</div>`);
+  if (pct > 65) w.push(`<div class="note danger"><b>${t('Over capacity')}</b> — ${nf(s.vol, 3)} m³ = ${pct}% ${LANG === 'id' ? `dari molen ${S.mixerL} L` : `of the ${S.mixerL} L mixer`}. ${LANG === 'id' ? 'Kurangi karung.' : 'Reduce sacks.'}</div>`);
   if (s.mS != null && s.creditS > 0) w.push(`<div class="note info">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ${t('Moisture').toLowerCase()} → ${nf(s.creditS, 1)} L ${LANG === 'id' ? 'dikurangi dari air' : 'credited to the mix'}</div>`);
   if (s.mS != null && s.creditS <= 0) w.push(`<div class="note warn">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ≤ ${t('Absorption').toLowerCase()} ${S.moist.sandAbs}% → ${LANG === 'id' ? 'tidak ada air bebas' : 'no free water, no credit'}</div>`);
   if (s.spCapped) w.push(`<div class="note danger"><b>${t('Dose capped')}</b> — ${LANG === 'id'
@@ -596,7 +596,7 @@ function viewSlump() {
   }
 
   const adds = L.adds.length
-    ? `<details><summary>${t('Water used')} (${nf(L.poured, 1)} L)</summary><div class="fine mono">${L.adds.map((a, i) => `#${i + 1} +${nf(a.L, 1)} L → ${a.slump} cm`).join('<br>')}</div></details>`
+    ? `<details><summary>${t('Water used')} (${nf(L.poured, 1)} L)</summary><div class="fine mono">${L.adds.map((a, i) => `#${i + 1} ${a.sp ? '+' + nf(a.sp, 0) + ' mL SP' : '+' + nf(a.L, 1) + ' L'} → ${a.slump} cm`).join('<br>')}</div></details>`
     : '';
 
   const chip = (v) => `<button data-chip="${v}" class="${last === v ? 'on' : ''}">${v}</button>`;
@@ -626,6 +626,21 @@ function viewSlump() {
     <div class="stat" style="margin-top:10px"><span class="k">${t('Water')} ${LANG === 'id' ? 'di drum' : 'in drum'}</span><span class="v sm">${nf(L.poured, 1)} L</span></div>
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span>${nf(L.ceilingNet, 1)}</span><span class="unit">L</span></span></div>
     ${infoNote('ceil')}
+    <div class="addrow">
+      <label class="field" style="margin:0"><span class="lbl">${LANG === 'id' ? 'Air dituang' : 'Water poured'} (L)</span>
+        <input type="number" inputmode="decimal" step="0.1" min="0" data-live="actual" value="${nf(L.actual != null ? +L.actual : (L.nextAdd || 0), 1)}"></label>
+      <label class="field" style="margin:0"><span class="lbl">${LANG === 'id' ? 'SP ditambah' : 'SP added'} (mL)</span>
+        <input type="number" inputmode="numeric" step="10" min="0" data-live="spActual" value="${nf(+L.spActual || 0, 0)}"></label>
+    </div>
+    <div class="fine" style="margin-top:6px">${LANG === 'id'
+      ? 'Bawaannya sesuai angka di atas — ubah kalau yang dituang berbeda, atau kalau memakai plastisizer sebagai gantinya.'
+      : 'Defaults to the amount above — change it if you poured a different amount, or used plasticizer instead.'}</div>
+    ${(+L.spExtra > 0) ? (() => {
+      const tot = (L.spL + (+L.spExtra || 0) / 1000);
+      const pctSp = L.Cact > 0 ? tot * spDensity() / L.Cact * 100 : 0;
+      const over = pctSp > (+S.spMaxPct || 0) + 1e-9;
+      return `<div class="note ${over ? 'danger' : 'info'}">${LANG === 'id' ? 'SP tambahan' : 'Extra SP'} <b>+${nf(+L.spExtra, 0)} mL</b> · ${LANG === 'id' ? 'total dosis' : 'total dose'} <b>${nf(pctSp, 2)}%</b> ${LANG === 'id' ? 'dari semen' : 'of cement'}${over ? ` — <b>${LANG === 'id' ? 'di atas batas' : 'above the cap'} ${nf(+S.spMaxPct, 2)}%</b>` : ''}</div>`;
+    })() : ''}
   </div>
 
   <div class="card">
@@ -691,7 +706,7 @@ function viewDiary() {
     <div class="item">
       <div class="t">${esc(e.gradeName)} · ${nf(e.Cact, 0)} kg ${t('Cement').toLowerCase()}</div>
       ${e.pour ? `<div class="m">🔖 <b>${esc(e.pour)}</b></div>` : ''}
-      <div class="m">${new Date(e.ts).toLocaleString()} · ${nf(e.waterUsed, 1)} L ${t('Water').toLowerCase()} (${nf(e.wcActual, 3)} w/c) · slump ${e.finalSlump ?? '—'} cm · ${nf(e.vol, 3)} m³${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}</div>
+      <div class="m">${new Date(e.ts).toLocaleString()} · ${nf(e.waterUsed, 1)} L ${t('Water').toLowerCase()} (${nf(e.wcActual, 3)} w/c) · slump ${e.finalSlump ?? '—'} cm · ${nf(e.vol, 3)} m³${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}${e.spExtra > 0 ? ' · SP +' + nf(e.spExtra, 0) + ' mL' : ''}</div>
       <div class="m">${t('Sand')} ${nf(e.wetSand, 1)} kg${e.bucketSand ? ' (' + e.bucketSand + ' ' + t('buckets') + ')' : ''} · ${t('Gravel')} ${nf(e.wetGrav, 1)} kg${e.bucketGrav ? ' (' + e.bucketGrav + ' ' + t('buckets') + ')' : ''}${e.mS != null ? ' · ' + t('Moisture').toLowerCase() + ' ' + (e.mS * 100).toFixed(1) + '%' : ''}</div>
       <div class="m">${strengthLabel(e.strengthEst, e.source)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
       ${e.notes ? `<div class="m">📝 ${esc(e.notes)}</div>` : ''}
@@ -1045,6 +1060,7 @@ function startBatch() {
     bucketSand: s.bucketSand, bucketGrav: s.bucketGrav, bS: s.bS, bG: s.bG,
     poured: 0, nextAdd: s.startWater, adds: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0,
     pour: String(S.pourTag || '').trim(), steps: [], startWater: s.startWater,
+    actual: s.startWater, spActual: 0, spExtra: 0,
     target: (+s.g.tslump > 0 ? +s.g.tslump : +S.targetSlump), band: +S.band
   };
   save(); screen = 'Slump'; render();
@@ -1096,7 +1112,7 @@ function makeVerdict(L, slump) {
       body: id ? `Slump ${nf(slump, 1)} cm masih di bawah ${lo} cm. Pakai plastisizer sesuai dosis, atau tambah semen + agregat proporsional.`
         : `Slump ${nf(slump, 1)} cm is still under ${lo} cm. Use plasticizer at the label dose, or add cement + aggregate proportionally.` });
   }
-  return Object.assign(base, { kind: 'warn',
+  return Object.assign(base, { kind: 'warn', inputs: true,
     head: id ? 'TAMBAH AIR' : 'ADD WATER',
     num: `${nf(L.nextAdd, 1)} L`, unit: id ? 'sekarang' : 'now',
     body: id ? `Aduk 1–2 menit, lalu ukur lagi. Sisa air ${nf(Math.max(0, L.ceilingNet - L.poured - L.nextAdd), 1)} L.`
@@ -1111,12 +1127,26 @@ function overlayHTML(v) {
       ${v.num ? `<div class="vnum">${v.num}</div>` : ''}
       ${v.unit ? `<div class="vunit">${v.unit}</div>` : ''}
       <div class="vbody">${v.body}</div>
+      ${v.inputs ? `<div class="addrow" style="margin:0 0 8px">
+        <label class="field" style="margin:0"><span class="lbl">${id ? 'Air dituang' : 'Water poured'} (L)</span>
+          <input type="number" inputmode="decimal" step="0.1" min="0" data-live="actual" value="${nf(S.live && S.live.actual != null ? +S.live.actual : 0, 1)}"></label>
+        <label class="field" style="margin:0"><span class="lbl">${id ? 'SP ditambah' : 'SP added'} (mL)</span>
+          <input type="number" inputmode="numeric" step="10" min="0" data-live="spActual" value="${nf(S.live ? +S.live.spActual || 0 : 0, 0)}"></label>
+      </div>
+      <div class="vfine" style="margin:0 0 6px">${id ? 'Ubah kalau yang dituang berbeda, atau isi SP saja dan air 0.' : 'Change it if you poured a different amount, or set water 0 and enter SP only.'}</div>` : ''}
       ${v.finish ? `<button class="vbtn primary" data-action="vfinish">${id ? 'SELESAI' : 'FINISH BATCH'}</button>` : ''}
-      <button class="vbtn ghost2" data-action="vclose">${v.finish ? (id ? 'LANJUT ADUK' : 'KEEP MIXING') : (id ? 'MENGERTI' : 'GOT IT')}</button>
+      <button class="vbtn ghost2" data-action="vclose">${v.finish ? (id ? 'LANJUT ADUK' : 'KEEP MIXING') : v.inputs ? (id ? 'OK — ITU YANG MASUK' : 'OK — THAT IS WHAT WENT IN') : (id ? 'MENGERTI' : 'GOT IT')}</button>
       <div class="vfine">${id ? 'air di drum' : 'water in drum'} <b>${nf(v.poured, 1)} L</b> · ${id ? 'batas' : 'ceiling'} <b>${nf(S.live ? S.live.ceilingNet : 0, 1)} L</b></div>
     </div>
   </div>`;
 }
+
+/* Water the worker says actually went in. Falls back to the advised amount when
+   the field is left alone, so the normal flow still needs no extra tap. */
+const creditedWater = (L) => {
+  const v = L.actual;
+  return v != null && isFinite(+v) ? Math.max(0, +v) : Math.max(0, +L.nextAdd || 0);
+};
 
 function recordSlump() {
   const L = S.live; if (!L) return;
@@ -1134,10 +1164,14 @@ function recordSlump() {
       poured: L.poured };
     save(); render(); return;
   }
-  L.poured += L.nextAdd || 0;
-  if (L.nextAdd) { L.adds.push({ L: L.nextAdd, slump: v }); }
+  const water = creditedWater(L);
+  L.poured += water;
+  if (water > 0) { L.adds.push({ L: water, slump: v }); }
+  const spAdd = Math.max(0, +L.spActual || 0);
+  if (spAdd > 0) { L.spExtra = (+L.spExtra || 0) + spAdd; L.adds.push({ sp: spAdd, slump: v }); }
   L.slumps.push({ v, t: Date.now() });
   L.nextAdd = nextWater(L, v);
+  L.actual = L.nextAdd; L.spActual = 0;
   verdict = makeVerdict(L, v);
   save(); render();
 }
@@ -1149,8 +1183,12 @@ function finishBatch() {
   if (isFinite(typed) && typed > 0 && (!L.slumps.length || L.slumps[L.slumps.length - 1].v !== typed)) {
     L.slumps.push({ v: typed, t: Date.now() });
   }
-  // assume the last instructed water was poured before this reading
-  if (L.nextAdd > 0) { L.poured += L.nextAdd; L.nextAdd = 0; }
+  // the last addition went in before this reading — credit what the worker says
+  const lastWater = creditedWater(L);
+  if (lastWater > 0) L.poured += lastWater;
+  const spLast = Math.max(0, +L.spActual || 0);
+  if (spLast > 0) L.spExtra = (+L.spExtra || 0) + spLast;
+  L.nextAdd = 0;
   const finalSlump = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
   if (finalSlump == null) {
     const warn = LANG === 'id'
@@ -1166,7 +1204,7 @@ function finishBatch() {
     cementType: S.cementType, sack: L.sack, n: L.n, Cnom: L.Cnom, Cact: L.Cact, bufferPct: L.bufferPct,
     wetSand: L.wetSand, wetGrav: L.wetGrav, mS: L.mS, mG: L.mG, creditS: L.creditS, creditG: L.creditG,
     waterDesign: L.g.wc * L.Cnom, waterUsed: total, totalWater, wcActual, ceilingNet: L.ceilingNet,
-    finalSlump, targetSlump: effTarget(L), adds: L.adds.slice(), slumps: L.slumps.slice(), spL: L.spL, vol: L.vol,
+    finalSlump, targetSlump: effTarget(L), adds: L.adds.slice(), slumps: L.slumps.slice(), spL: L.spL, spExtra: +L.spExtra || 0, vol: L.vol,
     bucketSand: L.bucketSand == null ? null : Math.floor(L.bucketSand),
     bucketGrav: L.bucketGrav == null ? null : Math.floor(L.bucketGrav),
     strengthEst: strengthMPa(wcActual), notes: L.notes || '', d7: null, d28: null,
@@ -1214,7 +1252,7 @@ function download(name, text, type) {
 
 function exportCSV() {
   const cols = ['ts', 'gradeName', 'cementType', 'sack', 'n', 'Cnom', 'Cact', 'bufferPct', 'wetSand', 'wetGrav', 'mS', 'mG', 'creditS', 'creditG',
-    'waterDesign', 'waterUsed', 'wcActual', 'finalSlump', 'spL', 'vol', 'bucketSand', 'bucketGrav', 'strengthEst', 'd7', 'd28', 'costPerM3', 'notes', 'adds'];
+    'waterDesign', 'waterUsed', 'wcActual', 'finalSlump', 'spL', 'spExtra', 'vol', 'bucketSand', 'bucketGrav', 'strengthEst', 'd7', 'd28', 'costPerM3', 'notes', 'adds'];
   const head = cols.join(',');
   const lines = S.log.map((e) => cols.map((c) => {
     let v = e[c];
@@ -1336,6 +1374,12 @@ document.addEventListener('input', (ev) => {
     save();
     if (screen === 'Batch') syncBatch();
   }
+  const lv = el.dataset.live;
+  if (lv && S.live) {
+    const num = el.value === '' ? null : parseFloat(el.value);
+    S.live[lv] = (num == null || !isFinite(num)) ? (lv === 'spActual' ? 0 : null) : num;
+    save();
+  }
   const gf = el.dataset.gf;
   if (gf) {
     const g = S.grades.find((x) => x.id === el.dataset.grade);
@@ -1366,6 +1410,7 @@ document.addEventListener('change', (ev) => {
     return;
   }
   if (el.dataset.rerender) { render(); return; }
+  if (el.dataset.live) { render(); return; }
   if (el.dataset.gf || el.dataset.bind) {
     // full re-render for selects / committed values so derived cards refresh
     if (el.tagName === 'SELECT') render();
