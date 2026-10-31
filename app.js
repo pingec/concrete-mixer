@@ -56,7 +56,9 @@ const ID = {
   'Readymix per m3': 'Readymix per m3', 'Calib': 'Kalib', 'exact': 'pas',
   'fill calibration': 'isi kalibrasi', 'Remaining': 'Sisa',
   'Reset': 'Kembalikan', 'Reset settings to defaults': 'Kembalikan setelan ke awal',
-  'Reset recipes to defaults': 'Kembalikan resep ke awal', 'Jayamix design': 'Desain Jayamix'
+  'Reset recipes to defaults': 'Kembalikan resep ke awal', 'Jayamix design': 'Desain Jayamix',
+  'Superplasticizer max dose': 'Dosis maksimum superplasticizer', 'SP density': 'Massa jenis SP',
+  'Dose capped': 'Dosis dibatasi'
 };
 
 let LANG = 'en';
@@ -81,8 +83,8 @@ function setPath(obj, path, val) {
 const DEFAULT_GRADES = () => ([
   { id: 'g300s', key: 'K300', name: 'K300 — site mix',        source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.500,  sp: 0 },
   { id: 'g250s', key: 'K250', name: 'K250 — site mix',        source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.550,  sp: 0 },
-  { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.00452 },
-  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.00500 }
+  { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48 },
+  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 }
 ]);
 
 const DEFAULTS = () => ({
@@ -98,7 +100,9 @@ const DEFAULTS = () => ({
   mixerL: 350,
   cementType: 'PCC',
   kPerM3PerCm: 2.4,
-  spMaxPct: 2.0,
+  spMaxPct: 0.8,
+  spDensity: 1.06,
+  spUnitV2: true,
   cal: { tare: 0, bucketL: 12, sandWeigh: [], gravelWeigh: [], date: null },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
   prices: { cement: 0, sandPerM3: 0, gravelPerM3: 0, spPerL: 0, waterPerM3: 0, rmxPerM3: 1400000 },
@@ -124,6 +128,13 @@ function load() {
     S.grades.forEach((g) => {
       if (g && typeof g.name === 'string') g.name = g.name.replace(/readymix design/i, 'Jayamix design');
     });
+    // migration: SP used to be litres per kg of cement, now % of cement weight
+    if (!d.spUnitV2) {
+      S.grades.forEach((g) => {
+        if (g && +g.sp > 0 && +g.sp < 0.05) g.sp = +(+g.sp * (+S.spDensity || 1.06) * 100).toFixed(3);
+      });
+      S.spUnitV2 = true;
+    }
   } catch (e) { console.warn('load failed', e); }
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.warn('save failed', e); } }
@@ -134,6 +145,12 @@ const AIR = 0.02;                                           // entrapped air, fr
 const STRENGTH = { k: 2.88, A: { OPC: 169, PCC: 155 } };    // cube MPa = A * exp(-k * w/c)
 
 const grade = () => S.grades.find((g) => g.id === S.gradeId) || S.grades[0];
+
+/* Superplasticizer: dose is a % of cement weight (datasheet convention),
+   converted to litres with the product density (~1.06 kg/L for PCE). */
+const spDensity = () => +S.spDensity || 1.06;
+const spPctOf = (g) => Math.max(0, Math.min(+g.sp || 0, +S.spMaxPct || 0));
+const spCapped = (g) => (+g.sp || 0) > (+S.spMaxPct || 0) + 1e-9;
 
 function bucketKg(kind) {
   const arr = S.cal[kind + 'Weigh'] || [];
@@ -162,7 +179,8 @@ function snapshot() {
   const sandSSD = g.sand * Cact, gravSSD = g.gravel * Cact;
   const waterDesign = g.wc * Cnom;          // water for the grade at nominal cement
   const waterCeiling = g.wc * Cact;         // hard stop: never above grade w/c on actual cement
-  const spL = (g.sp || 0) * Cact;
+  const spPct = spPctOf(g);
+  const spL = (spPct / 100) * Cact / spDensity();
 
   const absS = +S.moist.sandAbs || 0, absG = +S.moist.gravelAbs || 0;
   const mS = moistureOf('sand'), mG = moistureOf('gravel');
@@ -179,7 +197,7 @@ function snapshot() {
 
   const bS = bucketKg('sand'), bG = bucketKg('gravel');
   return {
-    g, sack, n, Cnom, Cact, sandSSD, gravSSD, waterDesign, waterCeiling, spL,
+    g, sack, n, Cnom, Cact, sandSSD, gravSSD, waterDesign, waterCeiling, spL, spPct, spCapped: spCapped(g),
     mS, mG, creditS, creditG, wetSand, wetGrav, waterCorrected, ceilingNet, vol,
     bS, bG,
     bucketSand: bS > 0 ? wetSand / bS : null,
@@ -202,7 +220,7 @@ function siteStrengthA() {
 function perM3(g) {
   const Vs = 1 / SG.cement + g.sand / SG.sand + g.gravel / SG.gravel + g.wc / 1000;
   const C = (1 - AIR) / Vs;
-  return { C, sand: g.sand * C, gravel: g.gravel * C, water: g.wc * C, sp: (g.sp || 0) * C, vol: Vs };
+  return { C, sand: g.sand * C, gravel: g.gravel * C, water: g.wc * C, sp: (spPctOf(g) / 100) * C / spDensity(), vol: Vs };
 }
 function costOf(g) {
   const p = perM3(g);
@@ -229,8 +247,12 @@ const INFO = {
     'Batas keras — jangan menuang lebih dari ini. Dihitung terhadap semen yang benar-benar ada di drum (termasuk cadangan). Dengan cadangan 0 nilainya sama dengan “air untuk dituang”; selisih keduanya <b>adalah</b> cadangan semen. Tidak ada hal lain yang membuat keduanya berbeda.'],
   buckets: ['Whole level-full buckets, rounded <b>down</b>. The remainder is added as a partial bucket at the end — nothing is ever scooped back out of a full bucket.',
     'Ember penuh diratakan, dibulatkan <b>ke bawah</b>. Sisanya ditambahkan sebagai sebagian ember di akhir — tidak pernah mengurangi ember yang sudah penuh.'],
-  sp: ['Superplasticizer for this batch. Dilute it into half the mixing water, never onto dry material, and never add water after it. Add in two half-doses with a mix and a slump test between them.',
-    'Plastisizer untuk campuran ini. Encerkan ke setengah air, jangan ke bahan kering, dan jangan menambah air setelahnya. Beri dua setengah dosis dengan aduk dan uji slump di antaranya.']
+  sp: ['Superplasticizer for this batch. <b>Dose is % of cement weight</b>, as the datasheet writes it, converted to millilitres with the product density. Dilute it into half the mixing water — never onto dry material, and never add water after it. Add in two half-doses with a mix and a slump test between them.',
+    'Plastisizer untuk campuran ini. <b>Dosis dalam % berat semen</b>, seperti di lembar data, diubah ke mililiter memakai massa jenis produk. Encerkan ke setengah air — jangan ke bahan kering, dan jangan menambah air setelahnya. Beri dua setengah dosis dengan aduk dan uji slump di antaranya.'],
+  spmax: ['Hard ceiling on superplasticizer dose, as % of cement weight. Viscocrete 3115 N datasheet: <b>0.3–0.8%</b> for soft plastic concrete (your 8–12 cm slump), <b>0.8–2.0%</b> only for flowing or self-compacting concrete. The app refuses to dose above this and flags the recipe if it asks for more.',
+    'Batas keras dosis plastisizer, dalam % berat semen. Lembar data Viscocrete 3115 N: <b>0,3–0,8%</b> untuk beton plastis (slump 8–12 cm), <b>0,8–2,0%</b> hanya untuk beton mengalir atau self-compacting. Aplikasi menolak dosis di atas ini dan menandai resep yang meminta lebih.'],
+  k: ['How much extra water raises slump by 1 cm, per m³ of concrete. Default 2.4 L/m³ per cm — that is about 0.48 L per cm on a 0.2 m³ batch. The app re-fits this automatically from every finished batch (±20% per batch, so it cannot run away), which makes the next addition more accurate for your sand, cement and mixer.',
+    'Berapa banyak air tambahan menaikkan slump 1 cm, per m³ beton. Awal 2,4 L/m³ per cm — sekitar 0,48 L per cm untuk campuran 0,2 m³. Aplikasi menyetel ulang otomatis dari setiap campuran yang selesai (±20% per campuran, jadi tidak bisa melenceng), sehingga tambahan berikutnya makin akurat untuk pasir, semen dan molen Anda.']
 };
 const infoBtn = (k) => `<button class="info" data-info="${k}" aria-label="?">?</button>`;
 const infoNote = (k) => `<div class="note info" id="info-${k}" style="display:none">${INFO[k][LANG === 'id' ? 1 : 0]}</div>`;
@@ -321,7 +343,7 @@ function viewBatch() {
     <div class="stat" id="row-credit" style="display:none"><span class="k">${t('Water in aggregate')}</span><span class="v"><span id="o-credit">—</span><span class="unit">L</span></span></div>
     <div class="stat"><span class="k">${t('Water ceiling')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
     ${infoNote('ceil')}
-    <div class="stat" id="row-sp" style="display:none"><span class="k">${t('Plasticizer')} ${infoBtn('sp')}</span><span class="v"><span id="o-sp">—</span><span class="unit">mL</span></span></div>
+    <div class="stat" id="row-sp" style="display:none"><span class="k">${t('Plasticizer')} ${infoBtn('sp')}</span><span class="v"><span id="o-sp">—</span><span class="unit">mL</span> <span class="fine" id="o-spPct"></span></span></div>
     ${infoNote('sp')}
     <div class="stat"><span class="k">${t('Batch volume')}</span><span class="v"><span id="o-vol">—</span><span class="unit">m³</span> <span class="fine" id="o-volpct"></span></span></div>
     <div id="warn"></div>
@@ -360,6 +382,7 @@ function syncBatch() {
   const rowCredit = document.getElementById('row-credit');
   if (rowCredit) rowCredit.style.display = (s.creditS + s.creditG) > 0.05 ? '' : 'none';
   set('o-sp', nf(s.spL * 1000, 0));
+  set('o-spPct', `(${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari semen' : 'of cement'})`);
   set('o-vol', nf(s.vol, 3));
   const pct = S.mixerL ? Math.round(s.vol * 1000 / S.mixerL * 100) : 0;
   set('o-volpct', `${pct}% ${LANG === 'id' ? 'dari molen' : 'of mixer'}`);
@@ -369,7 +392,10 @@ function syncBatch() {
   if (pct > 60) w.push(`<div class="note danger"><b>${t('Over capacity')}</b> — ${nf(s.vol, 3)} m³ = ${pct}% ${LANG === 'id' ? 'dari molen' : 'of the mixer'}. ${LANG === 'id' ? 'Kurangi karung.' : 'Reduce sacks.'}</div>`);
   if (s.mS != null && s.creditS > 0) w.push(`<div class="note info">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ${t('Moisture').toLowerCase()} → ${nf(s.creditS, 1)} L ${LANG === 'id' ? 'dikurangi dari air' : 'credited to the mix'}</div>`);
   if (s.mS != null && s.creditS <= 0) w.push(`<div class="note warn">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ≤ ${t('Absorption').toLowerCase()} ${S.moist.sandAbs}% → ${LANG === 'id' ? 'tidak ada air bebas' : 'no free water, no credit'}</div>`);
-  if (s.spL > 0) w.push(`<div class="note info">${t('Plasticizer')}: ${nf(s.spL * 1000, 0)} mL. ${LANG === 'id' ? 'Encerkan dalam setengah air, jangan tuang ke bahan kering.' : 'Dilute in half the water — never onto dry material.'}</div>`);
+  if (s.spCapped) w.push(`<div class="note danger"><b>${t('Dose capped')}</b> — ${LANG === 'id'
+    ? `resep minta ${nf(s.g.sp, 2)}% tetapi maksimum ${nf(S.spMaxPct, 2)}%. Dipakai ${nf(s.spPct, 2)}%.`
+    : `recipe asks ${nf(s.g.sp, 2)}% but the max is ${nf(S.spMaxPct, 2)}%. Using ${nf(s.spPct, 2)}%.`}</div>`);
+  if (s.spL > 0) w.push(`<div class="note info">${t('Plasticizer')}: ${nf(s.spL * 1000, 0)} mL = ${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari berat semen' : 'of cement weight'}. ${LANG === 'id' ? 'Encerkan dalam setengah air, jangan tuang ke bahan kering.' : 'Dilute in half the water — never onto dry material.'}</div>`);
   const wEl = document.getElementById('warn'); if (wEl) wEl.innerHTML = w.join('');
   if (wEl && !w.length) wEl.innerHTML = '';
 }
@@ -496,7 +522,7 @@ function viewGrades() {
             <label class="field" style="margin:0"><span class="lbl">w/c</span><input type="number" step="0.005" value="${g.wc}" data-grade="${g.id}" data-gf="wc" data-num="1"></label>
           </div>
           <div class="row3" style="margin-top:8px">
-            <label class="field" style="margin:0"><span class="lbl">SP L/kg</span><input type="number" step="0.0005" value="${g.sp || 0}" data-grade="${g.id}" data-gf="sp" data-num="1"></label>
+            <label class="field" style="margin:0"><span class="lbl">SP % ${LANG === 'id' ? 'semen' : 'cement'}</span><input type="number" step="0.01" min="0" value="${g.sp || 0}" data-grade="${g.id}" data-gf="sp" data-num="1"></label>
             <label class="field" style="margin:0"><span class="lbl">${t('Source')}</span>
               <select data-grade="${g.id}" data-gf="source">
                 <option value="site" ${g.source === 'site' ? 'selected' : ''}>${t('Site mix')}</option>
@@ -679,10 +705,18 @@ function viewSettings() {
     </div>
     <div class="row">
       <label class="field"><span class="lbl">${t('Start water %')}</span><input type="number" step="5" data-bind="startWaterPct" data-num="1" value="${S.startWaterPct}"></label>
-      <label class="field"><span class="lbl">${t('Water per cm, per m3')}</span><input type="number" step="0.1" data-bind="kPerM3PerCm" data-num="1" value="${S.kPerM3PerCm}"></label>
+      <label class="field"><span class="lbl">${t('Water per cm, per m3')} ${infoBtn('k')}</span><input type="number" step="0.1" min="0.2" data-bind="kPerM3PerCm" data-num="1" value="${S.kPerM3PerCm}"><span class="hint">L/m³ ${LANG === 'id' ? 'per cm' : 'per cm'}</span></label>
     </div>
-    <label class="field"><span class="lbl">SP ${LANG === 'id' ? 'dosis maksimum' : 'max dose'} (% ${LANG === 'id' ? 'dari semen' : 'of cement'})</span>
-      <input type="number" step="0.1" data-bind="spMaxPct" data-num="1" value="${S.spMaxPct}"></label>
+    ${infoNote('k')}
+    <div class="row" style="margin-top:10px">
+      <label class="field" style="margin:0"><span class="lbl">${t('Superplasticizer max dose')} ${infoBtn('spmax')}</span>
+        <input type="number" step="0.1" min="0" max="5" data-bind="spMaxPct" data-num="1" value="${S.spMaxPct}">
+        <span class="hint">% ${LANG === 'id' ? 'dari berat semen' : 'of cement weight'}</span></label>
+      <label class="field" style="margin:0"><span class="lbl">${t('SP density')}</span>
+        <input type="number" step="0.01" min="0.8" max="1.4" data-bind="spDensity" data-num="1" value="${S.spDensity}">
+        <span class="hint">kg/L</span></label>
+    </div>
+    ${infoNote('spmax')}
     <div class="note info">${t('Strength estimate')}: ${nf(strengthMPa(0.50), 1)} MPa @ w/c 0.50 (${S.cementType})${A ? `<br>${LANG === 'id' ? 'Dari kubus Anda' : 'From your cubes'}: A ≈ ${nf(A, 0)} (${LANG === 'id' ? 'model default' : 'default model'} ${STRENGTH.A[S.cementType]})` : ''}</div>
   </div>
 

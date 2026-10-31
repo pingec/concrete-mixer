@@ -38,8 +38,13 @@ sand    = ratioSand  x Cact        (SSD)
 gravel  = ratioGravel x Cact       (SSD)
 water   = w/c x Cnom               <- design water, from NOMINAL cement
 ceiling = w/c x Cact               <- hard stop, the only water margin
-SP      = spPerKg x Cact
+SP      = (spPct/100) x Cact / spDensity   <- dose given as % of cement weight
 ```
+
+Superplasticizer follows the datasheet convention: **% of cement weight**
+(Viscocrete 3115 N: 0.3–0.8% for soft plastic concrete, 0.8–2.0% only for flowing
+or self-compacting). The app converts to litres with the product density
+(default 1.06 kg/L), shows the batch dose in mL, and refuses to exceed the max dose.
 
 The buffer therefore lowers the real w/c (`w/c x Cnom/Cact`) instead of scaling
 the batch: +5% cement buys ~5% water-overrun tolerance. With buffer 0 the
