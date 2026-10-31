@@ -55,8 +55,13 @@ Free water credited from an aggregate: `dryMass x (m - absorption)`, floored at
 zero. Batch wet mass = `dryMass x (1 + m)` where `dryMass = SSD / (1 + absorption)`.
 Without a pan test the aggregate is assumed SSD and nothing is credited.
 
-**Strength estimate** (indicative only): cube MPa `= A x exp(-2.88 x w/c)`,
-`A = 169` OPC / `155` PCC. K `= MPa x 10.197`. Refined against logged cube results.
+**Strength estimate** (indicative). Abrams curve: mean cube MPa `= A x exp(-2.88 x w/c)`,
+`A = 169` OPC / `155` PCC. A **K-grade is characteristic**, not mean: 95% of cubes must
+reach it, so mean = grade + 1.64 σ. The app shows the mean and the characteristic K
+that mean implies, using σ from Settings (default 5 MPa — a controlled small crew;
+raise it if your cubes scatter). Readymix-derived rows show mean only, because their
+cement class and grading are unknown and the generic curve is conservative for lean
+admixture mixes. Log cube results and the app re-fits `A` to your cement.
 
 **Slump loop.** Start at 85% of the design water, then
 `add = k x (10 - slump)`, `k = 2.4 L per cm per m3` (0.48 L/cm on a 0.2 m3 batch),
@@ -76,10 +81,10 @@ breakEven(Rp/L) = (costOfNoSPRecipe - costOfSPRecipeExcludingSP) / SP litres
 
 | recipe | sand | gravel | w/c | cement/m3 | ≈strength |
 |---|---|---|---|---|---|
-| K300 site mix (No SP) | 1.80 | 2.75 | 0.50 | 387 kg | 36.7 MPa ≈ K374 |
-| K250 site mix (No SP) | 2.05 | 3.10 | 0.55 | 349 kg | 31.8 MPa ≈ K324 |
-| K300 Jayamix design (With SP) | 3.367 | 2.857 | 0.595 | 300 kg | 27.9 MPa ≈ K285 (needs SP) |
-| K250 Jayamix design (With SP) | 3.817 | 3.206 | 0.668 | 270 kg | 22.6 MPa ≈ K231 (needs SP) |
+| K300 site mix (No SP) | 1.80 | 2.75 | 0.49 | 388 kg | 37.8 MPa mean → K302 characteristic |
+| K250 site mix (No SP) | 2.05 | 3.10 | 0.54 | 350 kg | 32.7 MPa mean → K250 characteristic |
+| K300 Jayamix design (With SP) | 3.367 | 2.857 | 0.595 | 300 kg | 27.9 MPa mean* |
+| K250 Jayamix design (With SP) | 3.817 | 3.206 | 0.668 | 270 kg | 22.6 MPa mean* |
 
 The two Jayamix rows are derived from the PT SCG Readymix Indonesia (Jayamix) mix
 design 427/E-MD-SRMI/VIII/2026 for this project (K-250/K-300, 10+-2 cm slump, SSD).

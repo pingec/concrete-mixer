@@ -58,7 +58,7 @@ const ID = {
   'Reset': 'Kembalikan', 'Reset settings to defaults': 'Kembalikan setelan ke awal',
   'Reset recipes to defaults': 'Kembalikan resep ke awal', 'Jayamix design': 'Desain Jayamix',
   'Superplasticizer max dose': 'Dosis maksimum superplasticizer', 'SP density': 'Massa jenis SP',
-  'Dose capped': 'Dosis dibatasi'
+  'Dose capped': 'Dosis dibatasi', 'Batch scatter σ': 'Sebaran batch σ'
 };
 
 let LANG = 'en';
@@ -81,8 +81,8 @@ function setPath(obj, path, val) {
 
 /* --------------------------------------------------------------- state --- */
 const DEFAULT_GRADES = () => ([
-  { id: 'g300s', key: 'K300', name: 'K300 — site mix (No SP)',       source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.500,  sp: 0 },
-  { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.550,  sp: 0 },
+  { id: 'g300s', key: 'K300', name: 'K300 — site mix (No SP)',       source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.490,  sp: 0 },
+  { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.540,  sp: 0 },
   { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48 },
   { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 }
 ]);
@@ -103,6 +103,8 @@ const DEFAULTS = () => ({
   spMaxPct: 0.8,
   spDensity: 1.06,
   spUnitV2: true,
+  sigmaMPa: 5,
+  wcTrimV2: true,
   cal: { tare: 0, bucketL: 12, sandWeigh: [], gravelWeigh: [], date: null },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
   prices: { cement: 0, sandPerM3: 0, gravelPerM3: 0, spPerL: 0, waterPerM3: 0, rmxPerM3: 1400000 },
@@ -137,6 +139,15 @@ function load() {
         if (g && +g.sp > 0 && +g.sp < 0.05) g.sp = +(+g.sp * (+S.spDensity || 1.06) * 100).toFixed(3);
       });
       S.spUnitV2 = true;
+    }
+    // migration: site-mix w/c trimmed to hold the characteristic grade at sigma 5 MPa
+    if (!d.wcTrimV2) {
+      S.grades.forEach((g) => {
+        if (!g) return;
+        if (g.id === 'g300s' && Math.abs(+g.wc - 0.500) < 1e-6) g.wc = 0.490;
+        if (g.id === 'g250s' && Math.abs(+g.wc - 0.550) < 1e-6) g.wc = 0.540;
+      });
+      S.wcTrimV2 = true;
     }
   } catch (e) { console.warn('load failed', e); }
 }
@@ -209,9 +220,30 @@ function snapshot() {
   };
 }
 
+/* ---- strength model ------------------------------------------------------
+   Abrams: cube strength grows as w/c falls. The value below is a MEAN cube
+   strength. A K-grade is a CHARACTERISTIC strength (95% of cubes exceed it),
+   so the mean must sit above the grade by 1.64 sigma. sigma is the site's own
+   scatter; 5 MPa is a controlled small-crew operation. */
 function strengthMPa(wc) {
   const A = STRENGTH.A[S.cementType] || STRENGTH.A.PCC;
   return A * Math.exp(-STRENGTH.k * wc);
+}
+const sigmaMPa = () => Math.max(0, +S.sigmaMPa || 0);
+const charMPa = (mean) => mean - 1.64 * sigmaMPa();
+const toK = (mpa) => mpa * 10.197;
+function gradeFit(mean) {
+  const char = charMPa(mean);
+  return { mean, char, kMean: toK(mean), kChar: toK(char) };
+}
+/* Site recipes get a characteristic K (we control the design); readymix-derived
+   rows only get a mean, because their cement class and grading are unknown to us
+   and the generic curve is conservative for lean, admixture-modified mixes. */
+function strengthLabel(mean, source) {
+  const f = gradeFit(mean);
+  const meanTxt = `${nf(f.mean, 1)} MPa ${LANG === 'id' ? 'rata-rata' : 'mean'}`;
+  if (source === 'rmx') return `${meanTxt}*`;
+  return `${meanTxt} → K${Math.round(f.kChar)} ${LANG === 'id' ? 'karakteristik' : 'characteristic'}`;
 }
 function siteStrengthA() {
   const vals = S.log.filter((e) => e.d28 > 0 && e.wcActual > 0)
@@ -255,7 +287,9 @@ const INFO = {
   spmax: ['Hard ceiling on superplasticizer dose, as % of cement weight. Viscocrete 3115 N datasheet: <b>0.3–0.8%</b> for soft plastic concrete (your 8–12 cm slump), <b>0.8–2.0%</b> only for flowing or self-compacting concrete. The app refuses to dose above this and flags the recipe if it asks for more.',
     'Batas keras dosis plastisizer, dalam % berat semen. Lembar data Viscocrete 3115 N: <b>0,3–0,8%</b> untuk beton plastis (slump 8–12 cm), <b>0,8–2,0%</b> hanya untuk beton mengalir atau self-compacting. Aplikasi menolak dosis di atas ini dan menandai resep yang meminta lebih.'],
   k: ['How much extra water raises slump by 1 cm, per m³ of concrete. Default 2.4 L/m³ per cm — that is about 0.48 L per cm on a 0.2 m³ batch. The app re-fits this automatically from every finished batch (±20% per batch, so it cannot run away), which makes the next addition more accurate for your sand, cement and mixer.',
-    'Berapa banyak air tambahan menaikkan slump 1 cm, per m³ beton. Awal 2,4 L/m³ per cm — sekitar 0,48 L per cm untuk campuran 0,2 m³. Aplikasi menyetel ulang otomatis dari setiap campuran yang selesai (±20% per campuran, jadi tidak bisa melenceng), sehingga tambahan berikutnya makin akurat untuk pasir, semen dan molen Anda.']
+    'Berapa banyak air tambahan menaikkan slump 1 cm, per m³ beton. Awal 2,4 L/m³ per cm — sekitar 0,48 L per cm untuk campuran 0,2 m³. Aplikasi menyetel ulang otomatis dari setiap campuran yang selesai (±20% per campuran, jadi tidak bisa melenceng), sehingga tambahan berikutnya makin akurat untuk pasir, semen dan molen Anda.'],
+  strength: ['A <b>K-grade is a characteristic strength</b>: 95% of cube results must be at or above it, so the batch <i>average</i> has to sit higher — typically by 1.64 σ, where σ is the scatter of cube results on your site. The app estimates the mean from w/c (Abrams curve, cement type PCC/OPC), then subtracts 1.64 σ to show the characteristic K-grade that mean implies. That is why a mix labelled K300 shows a mean around 37 MPa and a characteristic around K300 — same mix, two different statistics. Log real cube results and the app re-fits the curve to your cement instead of the generic one.',
+    'Mutu <b>K adalah kuat tekan karakteristik</b>: 95% hasil kubus harus sama atau di atasnya, jadi <i>rata-rata</i> campuran harus lebih tinggi — biasanya 1,64 σ, dengan σ adalah sebaran hasil kubus di site Anda. Aplikasi memperkirakan rata-rata dari w/c (kurva Abrams, jenis semen PCC/OPC), lalu mengurangi 1,64 σ untuk menunjukkan mutu K karakteristik yang dihasilkan. Karena itu campuran berlabel K300 tampil dengan rata-rata sekitar 37 MPa dan karakteristik sekitar K300 — campuran sama, dua statistik berbeda. Catat hasil kubus nyata dan aplikasi akan menyetel kurva ke semen Anda, bukan kurva umum.']
 };
 const infoBtn = (k) => `<button class="info" data-info="${k}" aria-label="?">?</button>`;
 const infoNote = (k) => `<div class="note info" id="info-${k}" style="display:none">${INFO[k][LANG === 'id' ? 1 : 0]}</div>`;
@@ -315,8 +349,10 @@ function viewBatch() {
     </div>
     <div class="note info" style="margin-top:0">
       ${g.sand.toFixed(2)} : ${g.gravel.toFixed(2)} : ${g.wc.toFixed(2)} ${LANG === 'id' ? 'per kg semen' : 'per kg cement'}
-      · <b>${est.toFixed(1)} MPa ≈ K${Math.round(est * 10.197)}</b> (${S.cementType})
+      · <b>${strengthLabel(est, g.source)}</b> ${infoBtn('strength')}
+      ${g.source === 'rmx' ? `<br><span class="fine">*${LANG === 'id' ? ' kurva umum — campuran kurus dengan aditif biasanya lebih tinggi dari ini' : ' generic curve — lean admixture mixes usually test higher than this'}</span>` : ''}
     </div>
+    ${infoNote('strength')}
     <details style="margin-top:10px" ${(+S.bufferPct > 0 || +S.mixerL !== 350) ? 'open' : ''}>
       <summary>${t('Cement buffer')} · ${t('Mixer capacity')}</summary>
       <div class="row" style="margin-top:10px">
@@ -494,7 +530,7 @@ function viewDiary() {
       <div class="t">${esc(e.gradeName)} · ${nf(e.Cact, 0)} kg ${t('Cement').toLowerCase()}</div>
       <div class="m">${new Date(e.ts).toLocaleString()} · ${nf(e.waterUsed, 1)} L ${t('Water').toLowerCase()} (${nf(e.wcActual, 3)} w/c) · slump ${e.finalSlump ?? '—'} cm · ${nf(e.vol, 3)} m³${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}</div>
       <div class="m">${t('Sand')} ${nf(e.wetSand, 1)} kg${e.bucketSand ? ' (' + e.bucketSand + ' ' + t('buckets') + ')' : ''} · ${t('Gravel')} ${nf(e.wetGrav, 1)} kg${e.bucketGrav ? ' (' + e.bucketGrav + ' ' + t('buckets') + ')' : ''}${e.mS != null ? ' · ' + t('Moisture').toLowerCase() + ' ' + (e.mS * 100).toFixed(1) + '%' : ''}</div>
-      <div class="m">${t('Strength estimate')}: ${nf(e.strengthEst, 1)} MPa ≈ K${Math.round(e.strengthEst * 10.197)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
+      <div class="m">${strengthLabel(e.strengthEst, e.source)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
       ${e.notes ? `<div class="m">📝 ${esc(e.notes)}</div>` : ''}
       <div class="row" style="margin-top:8px">
         <label class="field" style="margin:0"><span class="lbl">${t('7 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d7 ?? ''}" data-cube="d7" data-id="${e.id}"></label>
@@ -514,7 +550,7 @@ function viewGrades() {
       return `<details class="item" data-gid="${g.id}" ${openGrades.has(g.id) ? 'open' : ''} style="margin-bottom:10px">
         <summary style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding:2px 0">
           <span style="font-size:16px;color:var(--ink)">${esc(g.name)}</span>
-          <span class="fine" style="white-space:nowrap">${nf(c.C, 0)} kg/m³ · K${Math.round(f * 10.197)}</span>
+          <span class="fine" style="white-space:nowrap">${nf(c.C, 0)} kg/m³ · ${strengthLabel(f, g.source)}</span>
         </summary>
         <div style="margin-top:10px">
           <label class="field" style="margin:0 0 8px"><span class="lbl">${t('Recipe name')}</span>
@@ -533,7 +569,7 @@ function viewGrades() {
               </select></label>
             <div style="display:flex;align-items:flex-end"><button class="xs wide" style="color:var(--danger)" data-action="grade-del" data-id="${g.id}">${t('Delete')}</button></div>
           </div>
-          <div class="fine" style="margin-top:8px">${t('Cement content')} ≈ ${nf(c.C, 0)} kg/m³ · ${t('Strength (MPa)')} ≈ ${nf(f, 1)} MPa ≈ K${Math.round(f * 10.197)}</div>
+          <div class="fine" style="margin-top:8px">${t('Cement content')} ≈ ${nf(c.C, 0)} kg/m³ · ${nf(f, 1)} MPa ${LANG === 'id' ? 'rata-rata' : 'mean'} · K${Math.round(gradeFit(f).kChar)} ${LANG === 'id' ? 'karakteristik' : 'characteristic'} (σ ${nf(sigmaMPa(), 1)} MPa)</div>
         </div>
       </details>`;
     }).join('')}
@@ -720,7 +756,11 @@ function viewSettings() {
         <span class="hint">kg/L</span></label>
     </div>
     ${infoNote('spmax')}
-    <div class="note info">${t('Strength estimate')}: ${nf(strengthMPa(0.50), 1)} MPa @ w/c 0.50 (${S.cementType})${A ? `<br>${LANG === 'id' ? 'Dari kubus Anda' : 'From your cubes'}: A ≈ ${nf(A, 0)} (${LANG === 'id' ? 'model default' : 'default model'} ${STRENGTH.A[S.cementType]})` : ''}</div>
+    <label class="field"><span class="lbl">${t('Batch scatter σ')} ${infoBtn('strength')}</span>
+      <input type="number" step="0.5" min="0" max="15" data-bind="sigmaMPa" data-num="1" value="${S.sigmaMPa}">
+      <span class="hint">MPa · ${LANG === 'id' ? 'sebaran hasil kubus di site ini' : 'spread of cube results on this site'}</span></label>
+    ${infoNote('strength')}
+    <div class="note info">${S.cementType} · ${t('Strength estimate')}: ${strengthLabel(strengthMPa(grade().wc), grade().source)} @ w/c ${grade().wc.toFixed(3)}${A ? `<br>${LANG === 'id' ? 'Dari kubus Anda' : 'From your cubes'}: A ≈ ${nf(A, 0)} (${LANG === 'id' ? 'model default' : 'default model'} ${STRENGTH.A[S.cementType]})` : ''}</div>
   </div>
 
   <div class="card">
