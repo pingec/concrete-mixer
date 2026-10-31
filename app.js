@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -58,7 +58,12 @@ const ID = {
   'Reset': 'Kembalikan', 'Reset settings to defaults': 'Kembalikan setelan ke awal',
   'Reset recipes to defaults': 'Kembalikan resep ke awal', 'Jayamix design': 'Desain Jayamix',
   'Superplasticizer max dose': 'Dosis maksimum superplasticizer', 'SP density': 'Massa jenis SP',
-  'Dose capped': 'Dosis dibatasi', 'Batch scatter σ': 'Sebaran batch σ'
+  'Dose capped': 'Dosis dibatasi', 'Batch scatter σ': 'Sebaran batch σ',
+  'target': 'target', 'Invalid backup': 'Cadangan tidak valid', 'OK': 'OK',
+  'sand': 'pasir', 'gravel': 'kerikil',
+  'Pour / element': 'Coran / elemen', 'Tips': 'Panduan', 'Back': 'Kembali', 'Resume': 'Lanjutkan',
+  'Cast': 'Cetak', 'due now': 'sudah jatuh tempo', 'due in': 'jatuh tempo dalam', 'Pours': 'Coran',
+  'Ungrouped': 'Tanpa coran'
 };
 
 let LANG = 'en';
@@ -107,6 +112,7 @@ const DEFAULTS = () => ({
   sigmaMPa: 5,
   wcTrimV2: true,
   defaultsV: 4,
+  pourTag: '',
   cal: { tare: 2, bucketL: 20, sandWeigh: [36], gravelWeigh: [30], date: new Date().toISOString().slice(0, 10) },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
   prices: { cement: 64000, sandPerM3: 550000, gravelPerM3: 550000, spPerL: 90000, waterPerM3: 0, rmxPerM3: 1400000 },
@@ -287,6 +293,26 @@ function siteStrengthA() {
   return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
 }
 
+/* ------------------------------------------------------------ cube tests */
+const DAYMS = 86400000;
+function cubeState(e) {
+  const now = Date.now();
+  const d7 = +e.ts + 7 * DAYMS, d28 = +e.ts + 28 * DAYMS;
+  return {
+    d7, d28,
+    due7: !(+e.d7 > 0) && now >= d7,
+    due28: !(+e.d28 > 0) && now >= d28,
+    left7: Math.ceil((d7 - now) / DAYMS),
+    left28: Math.ceil((d28 - now) / DAYMS)
+  };
+}
+const cubeDueCount = () => S.log.reduce((n, e) => {
+  if (!e.ts) return n;
+  const c = cubeState(e);
+  return n + (c.due7 ? 1 : 0) + (c.due28 ? 1 : 0);
+}, 0);
+const fmtDate = (ts) => new Date(ts).toLocaleDateString(LANG === 'id' ? 'id-ID' : 'en-GB', { day: 'numeric', month: 'short' });
+
 /* ----------------------------------------------------------------- cost --- */
 function perM3(g) {
   const Vs = 1 / SG.cement + g.sand / SG.sand + g.gravel / SG.gravel + g.wc / 1000;
@@ -325,7 +351,9 @@ const INFO = {
   k: ['How much extra water raises slump by 1 cm, per m³ of concrete. Default 2.4 L/m³ per cm — that is about 0.48 L per cm on a 0.2 m³ batch. The app re-fits this automatically from every finished batch (±20% per batch, so it cannot run away), which makes the next addition more accurate for your sand, cement and mixer.',
     'Berapa banyak air tambahan menaikkan slump 1 cm, per m³ beton. Awal 2,4 L/m³ per cm — sekitar 0,48 L per cm untuk campuran 0,2 m³. Aplikasi menyetel ulang otomatis dari setiap campuran yang selesai (±20% per campuran, jadi tidak bisa melenceng), sehingga tambahan berikutnya makin akurat untuk pasir, semen dan molen Anda.'],
   strength: ['A <b>K-grade is a characteristic strength</b>: 95% of cube results must be at or above it, so the batch <i>average</i> has to sit higher — typically by 1.64 σ, where σ is the scatter of cube results on your site. The app estimates the mean from w/c (Abrams curve, cement type PCC/OPC), then subtracts 1.64 σ to show the characteristic K-grade that mean implies. That is why a mix labelled K300 shows a mean around 37 MPa and a characteristic around K300 — same mix, two different statistics. Log real cube results and the app re-fits the curve to your cement instead of the generic one.',
-    'Mutu <b>K adalah kuat tekan karakteristik</b>: 95% hasil kubus harus sama atau di atasnya, jadi <i>rata-rata</i> campuran harus lebih tinggi — biasanya 1,64 σ, dengan σ adalah sebaran hasil kubus di site Anda. Aplikasi memperkirakan rata-rata dari w/c (kurva Abrams, jenis semen PCC/OPC), lalu mengurangi 1,64 σ untuk menunjukkan mutu K karakteristik yang dihasilkan. Karena itu campuran berlabel K300 tampil dengan rata-rata sekitar 37 MPa dan karakteristik sekitar K300 — campuran sama, dua statistik berbeda. Catat hasil kubus nyata dan aplikasi akan menyetel kurva ke semen Anda, bukan kurva umum.']
+    'Mutu <b>K adalah kuat tekan karakteristik</b>: 95% hasil kubus harus sama atau di atasnya, jadi <i>rata-rata</i> campuran harus lebih tinggi — biasanya 1,64 σ, dengan σ adalah sebaran hasil kubus di site Anda. Aplikasi memperkirakan rata-rata dari w/c (kurva Abrams, jenis semen PCC/OPC), lalu mengurangi 1,64 σ untuk menunjukkan mutu K karakteristik yang dihasilkan. Karena itu campuran berlabel K300 tampil dengan rata-rata sekitar 37 MPa dan karakteristik sekitar K300 — campuran sama, dua statistik berbeda. Catat hasil kubus nyata dan aplikasi akan menyetel kurva ke semen Anda, bukan kurva umum.'],
+  pour: ['A label for the pour this batch belongs to — an element, a pile group, a date. It is only a label: it changes no calculation. It exists so the diary reads as pours instead of loose batches, so the cube results can be traced back to the element they came from, and so you can see cement and volume per pour. Set it once before the first batch of a pour; every batch you start after that inherits it. Leave it blank for ungrouped work.',
+    'Label untuk coran tempat campuran ini termasuk — elemen, kelompok tiang, atau tanggal. Ini hanya label: tidak mengubah perhitungan apa pun. Fungsinya agar catatan terbaca sebagai coran, bukan campuran lepas; agar hasil kubus bisa dilacak ke elemen asalnya; dan agar terlihat semen serta volume per coran. Isi sekali sebelum campuran pertama sebuah coran; campuran berikutnya mewarisi label itu. Kosongkan untuk pekerjaan tanpa kelompok.']
 };
 const infoBtn = (k) => `<button class="info" data-info="${k}" aria-label="?">?</button>`;
 const infoNote = (k) => `<div class="note info" id="info-${k}" style="display:none">${INFO[k][LANG === 'id' ? 1 : 0]}</div>`;
@@ -338,10 +366,11 @@ const openGrades = new Set();
 
 function renderTabs() {
   const SHORT = { Calibration: 'Calib' };
+  const due = cubeDueCount();
   $('#tabs').innerHTML = TABS.map((n) => {
     const live = n === 'Slump' && !S.live;
     return `<button data-nav="${n}" class="${screen === n ? 'active' : ''}" ${live ? 'style="opacity:.5"' : ''}>
-      <span class="ico">${ICONS[n]}</span><span>${t(SHORT[n] || n)}</span></button>`;
+      <span class="ico">${ICONS[n]}</span><span>${t(SHORT[n] || n)}</span>${n === 'Diary' && due ? `<span class="badge">${due}</span>` : ''}</button>`;
   }).join('');
 }
 
@@ -351,7 +380,7 @@ function render() {
   $('#btnLang').textContent = LANG === 'en' ? 'ID' : 'EN';
   $('#ver').textContent = 'v' + VERSION;
   renderTabs();
-  const map = { Batch: viewBatch, Slump: viewSlump, Diary: viewDiary, Grades: viewGrades, Calibration: viewCalib, Cost: viewCost, Settings: viewSettings };
+  const map = { Batch: viewBatch, Slump: viewSlump, Diary: viewDiary, Grades: viewGrades, Calibration: viewCalib, Cost: viewCost, Settings: viewSettings, Tips: viewTips };
   $('#main').innerHTML = (map[screen] || viewBatch)();
   if (screen === 'Batch') syncBatch();
   window.scrollTo({ top: 0 });
@@ -372,6 +401,9 @@ function viewBatch() {
   <div class="card">
     <h2>${t('Recipe')}</h2>
     <div class="rsum" id="o-sum"></div>
+    ${S.live ? `<div class="note info" style="margin-top:0">
+      <b>${LANG === 'id' ? 'Campuran berjalan' : 'Batch in progress'}</b> — ${esc(S.live.gradeName)} · ${nf(S.live.Cact, 0)} kg ${t('Cement').toLowerCase()}, ${nf(S.live.poured, 1)} L ${LANG === 'id' ? 'di drum' : 'in drum'}
+      <button class="small wide" style="margin-top:8px" data-nav="Slump">${t('Resume')} →</button></div>` : ''}
     <label class="field"><span class="lbl">${t('Grade')}</span>
       <select data-bind="gradeId" data-rerender="1">${gradeOpts}</select>
     </label>
@@ -384,6 +416,10 @@ function viewBatch() {
       <label class="field"><span class="lbl">${t('Sacks per batch')}</span>
         <input type="number" inputmode="decimal" step="0.5" min="0.5" data-bind="sacks" data-num="1" value="${S.sacks}"></label>
     </div>
+    <label class="field"><span class="lbl">${t('Pour / element')} ${infoBtn('pour')}</span>
+      <input type="text" data-bind="pourTag" value="${esc(S.pourTag || '')}" placeholder="${LANG === 'id' ? 'mis. Tiang P1–P4' : 'e.g. Pile P1–P4'}">
+      <span class="hint">${LANG === 'id' ? 'label saja — dipakai semua campuran berikutnya' : 'label only — carried by every batch you start after this'}</span></label>
+    ${infoNote('pour')}
     <div class="note info" style="margin-top:0">
       ${g.sand.toFixed(2)} : ${g.gravel.toFixed(2)} : ${g.wc.toFixed(2)} ${LANG === 'id' ? 'per kg semen' : 'per kg cement'}
       · <b>${strengthLabel(est, g.source)}</b> ${infoBtn('strength')}
@@ -584,6 +620,20 @@ function viewSlump() {
 function viewDiary() {
   const rows = S.log.slice().reverse();
   const isEmpty = !rows.length;
+  /* pour grouping — read-only summary, built from whatever labels exist */
+  const groups = [];
+  S.log.forEach((e) => {
+    const k = String(e.pour || '').trim();
+    if (!k) return;
+    let g = groups.find((x) => x.k === k);
+    if (!g) { g = { k, n: 0, vol: 0, C: 0, slumps: [], due: 0, last: 0 }; groups.push(g); }
+    g.n += 1; g.vol += +e.vol || 0; g.C += +e.Cact || 0; g.last = Math.max(g.last, +e.ts || 0);
+    if (+e.finalSlump > 0) g.slumps.push(+e.finalSlump);
+    const c = cubeState(e);
+    g.due += (c.due7 ? 1 : 0) + (c.due28 ? 1 : 0);
+  });
+  groups.sort((a, b) => b.last - a.last);
+  const ungrouped = S.log.filter((e) => !String(e.pour || '').trim()).length;
   return `
   <div class="card">
     <h2>${t('Diary')} <span class="sub">${S.log.length} ${t('Batches').toLowerCase()}</span></h2>
@@ -597,10 +647,23 @@ function viewDiary() {
     </div>
   </div>
   ${isEmpty ? `<div class="card center fine">${t('No batches logged yet.')}</div>` : ''}
+  ${groups.length ? `<div class="card">
+    <h2>${t('Pours')} <span class="sub">${groups.length}</span></h2>
+    ${groups.map((g) => `<div class="item" style="margin-bottom:8px">
+      <div class="t">${esc(g.k)}</div>
+      <div class="m">${g.n} ${t('Batches').toLowerCase()} · ${nf(g.vol, 2)} m³ · ${nf(g.C, 0)} kg ${t('Cement').toLowerCase()} · ${LANG === 'id' ? 'slump rata-rata' : 'avg slump'} ${g.slumps.length ? nf(g.slumps.reduce((a, b) => a + b, 0) / g.slumps.length, 1) : '—'} cm</div>
+      ${g.due ? `<div class="m" style="color:var(--danger);font-weight:700">${g.due} ${LANG === 'id' ? 'uji kubus jatuh tempo' : (g.due === 1 ? 'cube test due' : 'cube tests due')}</div>` : ''}
+    </div>`).join('')}
+    ${ungrouped ? `<div class="fine">${ungrouped} ${LANG === 'id' ? 'campuran tanpa label coran' : (ungrouped === 1 ? 'batch without a pour label' : 'batches without a pour label')}</div>` : ''}
+  </div>` : ''}
   <div class="list">
-  ${rows.map((e) => `
+  ${rows.map((e) => {
+    const cs = cubeState(e);
+    const due = (n, d) => `${fmtDate(d)}${n ? ` <b style="color:var(--danger)">${t('due now')}</b>` : ''}`;
+    return `
     <div class="item">
       <div class="t">${esc(e.gradeName)} · ${nf(e.Cact, 0)} kg ${t('Cement').toLowerCase()}</div>
+      ${e.pour ? `<div class="m">🔖 <b>${esc(e.pour)}</b></div>` : ''}
       <div class="m">${new Date(e.ts).toLocaleString()} · ${nf(e.waterUsed, 1)} L ${t('Water').toLowerCase()} (${nf(e.wcActual, 3)} w/c) · slump ${e.finalSlump ?? '—'} cm · ${nf(e.vol, 3)} m³${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}</div>
       <div class="m">${t('Sand')} ${nf(e.wetSand, 1)} kg${e.bucketSand ? ' (' + e.bucketSand + ' ' + t('buckets') + ')' : ''} · ${t('Gravel')} ${nf(e.wetGrav, 1)} kg${e.bucketGrav ? ' (' + e.bucketGrav + ' ' + t('buckets') + ')' : ''}${e.mS != null ? ' · ' + t('Moisture').toLowerCase() + ' ' + (e.mS * 100).toFixed(1) + '%' : ''}</div>
       <div class="m">${strengthLabel(e.strengthEst, e.source)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
@@ -609,8 +672,10 @@ function viewDiary() {
         <label class="field" style="margin:0"><span class="lbl">${t('7 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d7 ?? ''}" data-cube="d7" data-id="${e.id}"></label>
         <label class="field" style="margin:0"><span class="lbl">${t('28 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d28 ?? ''}" data-cube="d28" data-id="${e.id}"></label>
       </div>
+      <div class="fine" style="margin-top:6px">${t('Cast')} ${fmtDate(e.ts)} · ${t('7 days')} ${due(cs.due7, cs.d7)} · ${t('28 days')} ${due(cs.due28, cs.d28)}</div>
       <div class="acts"><button class="xs" data-action="del" data-id="${e.id}">${t('Delete')}</button></div>
-    </div>`).join('')}
+    </div>`;
+  }).join('')}
   </div>`;
 }
 
@@ -819,6 +884,52 @@ function viewCost() {
   </div>` : ''}`;
 }
 
+/* ---- Tips: the process rules the numbers depend on ---- */
+const TIPS = [
+  { t: ['Water by measurement, not by eye', 'Air diukur, bukan dikira'],
+    b: ['1 litre too much in a 2-sack batch is +0.0125 w/c — about <b>−1.5 MPa</b>. Mark a 20 L bucket in 1 L steps, or count a 1.5 L scoop. Every number in this app rests on this one habit.',
+      'Kelebihan 1 liter pada campuran 2 karung = +0,0125 w/c — sekitar <b>−1,5 MPa</b>. Tandai ember 20 L per 1 liter, atau hitung ciduk 1,5 L. Semua angka di aplikasi ini bergantung pada kebiasaan ini.'] },
+  { t: ['Calibrate the buckets, then re-check them', 'Kalibrasi ember, lalu ulangi'],
+    b: ['Weigh 3 full buckets of sand and of gravel as they sit in the stockpile — damp, not dried. Repeat monthly, after rain and on every new delivery. The bulk density from those same numbers is what the mixer capacity check uses.',
+      'Timbang 3 ember penuh pasir dan kerikil sesuai kondisi di stockpile — lembap, bukan dikeringkan. Ulangi tiap bulan, setelah hujan, dan setiap kiriman baru. Berat jenis lepas dari angka itu dipakai untuk cek kapasitas molen.'] },
+  { t: ['One pan test per delivery', 'Satu uji wajan per kiriman'],
+    b: ['2 kg of sand weighed wet, dried in a wok on the stove, weighed again. Ten minutes of work corrects the water for the whole pour. Sand at 8% moisture with no pan test means the app tells you to pour about 2 L too much.',
+      '2 kg pasir ditimbang basah, dikeringkan di wajan, ditimbang lagi. Sepuluh menit kerja mengoreksi air untuk seluruh coran. Pasir 8% tanpa uji wajan berarti aplikasi menyuruh menuang sekitar 2 L terlalu banyak.'] },
+  { t: ['The slump test is a procedure, not an opinion', 'Uji slump itu prosedur, bukan pendapat'],
+    b: ['Three layers, 25 blows each with the rod, lift the cone in 5–7 seconds, measure immediately. Sloppy technique teaches the app a wrong k — and then its advice on how much water to add is wrong too.',
+      'Tiga lapis, 25 tusukan per lapis, angkat kerucut dalam 5–7 detik, ukur segera. Teknik yang asal membuat aplikasi belajar k yang salah — dan saran jumlah air berikutnya ikut salah.'] },
+  { t: ['At the water ceiling, use SP — never water', 'Saat batas air tercapai, pakai SP — bukan air'],
+    b: ['If slump is still under the band with all the water in, add superplasticizer at the label dose, diluted in water, never onto dry mix. Water past the ceiling is the one thing that silently downgrades the concrete.',
+      'Kalau slump masih di bawah target padahal air sudah habis, tambah plastisizer sesuai dosis label, diencerkan di air, jangan ke campuran kering. Air melewati batas adalah satu-satunya hal yang diam-diam menurunkan mutu.'] },
+  { t: ['Hot day, morning pour', 'Hari panas, cor pagi'],
+    b: ['At 30 °C in the sun slump drops 2–3 cm in 15 minutes. Keep cement shaded, and treat slump loss with SP, not water. A mix that has sat 30 minutes is not the same mix.',
+      'Pada 30 °C di bawah matahari, slump turun 2–3 cm dalam 15 menit. Simpan semen tertekan, dan atasi slump turun dengan SP, bukan air. Campuran yang didiamkan 30 menit bukan campuran yang sama.'] },
+  { t: ['The stockpile decides the mix', 'Tumpukan menentukan campuran'],
+    b: ['Sand on a tarpaulin, shaped into a cone, sample from the base — not the top. Grading separates and moisture stratifies: the bottom of the pile is wetter and coarser than what you see.',
+      'Pasir di atas terpal, dibentuk kerucut, ambil sampel dari bagian bawah — bukan atas. Gradasi memisah dan kadar air berlapis: dasar tumpukan lebih basah dan lebih kasar dari yang terlihat.'] },
+  { t: ['Cast cubes on the first batch of a pour', 'Cetak kubus pada campuran pertama'],
+    b: ['3 cubes, cured wet, tested at 7 and 28 days, results entered in the Diary. That is the only way to know what you actually made — and the app re-fits its strength curve to your cement from those results.',
+      '3 kubus, direndam, diuji umur 7 dan 28 hari, hasilnya dimasukkan ke Catatan. Itu satu-satunya cara tahu beton yang benar-benar dibuat — dan aplikasi menyetel kurva kuat tekan ke semen Anda dari hasil itu.'] },
+  { t: ['Weigh a sack from each cement delivery', 'Timbang satu karung tiap kiriman semen'],
+    b: ['A 39 kg bag in a 40 kg recipe breaks every ratio in the table, silently. Same for old stock: cement stored 3 months in a humid room can lose 10–20%.',
+      'Karung 39 kg pada resep 40 kg merusak semua rasio di tabel, tanpa terlihat. Sama untuk stok lama: semen 3 bulan di gudang lembap bisa kehilangan 10–20%.'] },
+  { t: ['Bore piles: keep the tremmie buried', 'Tiang bor: tremie tetap terbenam'],
+    b: ['Tremmie at least 1.5 m into the concrete, no free fall, steady rise, and never let a batch wait in the drum while the previous pile finishes — that is where segregation starts.',
+      'Tremie masuk minimal 1,5 m ke dalam beton, jangan jatuh bebas, naik stabil, dan jangan biarkan campuran menunggu di drum saat tiang sebelumnya selesai — di situlah segregasi mulai.'] },
+  { t: ['Check actual against theoretical pile volume', 'Bandingkan volume tiang nyata dan teoretis'],
+    b: ['π/4 × D² × depth per pile. 10–15% over is normal fill; 30% over means the hole is collapsing or necking, a construction problem no mix design fixes. Under means the pile is short.',
+      'π/4 × D² × kedalaman per tiang. Lebih 10–15% itu normal; lebih 30% berarti lubang runtuh atau mengecil, masalah pelaksanaan yang tidak bisa diperbaiki resep. Kurang berarti tiangnya pendek.'] }
+];
+
+function viewTips() {
+  const i = LANG === 'id' ? 1 : 0;
+  return `<div class="card">
+    <h2>${t('Tips')} <span class="sub">${LANG === 'id' ? 'aturan proses di site' : 'site process rules'}</span></h2>
+    <ol class="steps">${TIPS.map((x) => `<li><b>${x.t[i]}</b><br><span class="fine">${x.b[i]}</span></li>`).join('')}</ol>
+  </div>
+  <button class="small wide" data-nav="Batch">← ${t('Back')}</button>`;
+}
+
 /* ---- Settings ---- */
 function viewSettings() {
   const A = siteStrengthA();
@@ -890,6 +1001,7 @@ function startBatch() {
     mS: s.mS, mG: s.mG, creditS: s.creditS, creditG: s.creditG,
     bucketSand: s.bucketSand, bucketGrav: s.bucketGrav, bS: s.bS, bG: s.bG,
     poured: 0, nextAdd: s.startWater, adds: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0,
+    pour: String(S.pourTag || '').trim(),
     target: (+s.g.tslump > 0 ? +s.g.tslump : +S.targetSlump), band: +S.band
   };
   save(); screen = 'Slump'; render();
@@ -910,11 +1022,16 @@ function recordSlump() {
   const L = S.live; if (!L) return;
   const v = parseFloat($('#slumpIn').value);
   if (!isFinite(v) || v < 0) { toast(LANG === 'id' ? 'Isi angka slump' : 'Enter a slump value'); return; }
-  L.slumps.push({ v, t: Date.now() });
+  const last = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
+  /* Pressing Record twice with the same number is a re-read, not a new test:
+     no water is credited and no duplicate reading is stored. */
+  if (last != null && Math.abs(last - v) < 1e-9) {
+    toast(LANG === 'id' ? 'Slump sama — tidak ada air ditambahkan' : 'Same slump — no water added');
+    L.nextAdd = nextWater(L, v); save(); render(); return;
+  }
   L.poured += L.nextAdd || 0;
   if (L.nextAdd) { L.adds.push({ L: L.nextAdd, slump: v }); }
-  const target = +S.targetSlump, band = +S.band;
-  // compute next suggestion
+  L.slumps.push({ v, t: Date.now() });
   L.nextAdd = nextWater(L, v);
   save(); render();
 }
@@ -929,11 +1046,17 @@ function finishBatch() {
   // assume the last instructed water was poured before this reading
   if (L.nextAdd > 0) { L.poured += L.nextAdd; L.nextAdd = 0; }
   const finalSlump = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
+  if (finalSlump == null) {
+    const warn = LANG === 'id'
+      ? 'Belum ada angka slump. Simpan campuran tanpa hasil uji?'
+      : 'No slump reading recorded. Save the batch without one?';
+    if (!confirm(warn)) return;
+  }
   const total = L.poured;                                   // water poured into the drum
   const totalWater = total + (L.creditS || 0) + (L.creditG || 0);   // + free water in aggregates
   const wcActual = L.Cact > 0 ? totalWater / L.Cact : 0;
   const entry = {
-    id: 'b' + Date.now(), ts: L.ts, gradeName: L.gradeName, source: L.g.source || '',
+    id: 'b' + Date.now(), ts: L.ts, gradeName: L.gradeName, source: L.g.source || '', pour: L.pour || '',
     cementType: S.cementType, sack: L.sack, n: L.n, Cnom: L.Cnom, Cact: L.Cact, bufferPct: L.bufferPct,
     wetSand: L.wetSand, wetGrav: L.wetGrav, mS: L.mS, mG: L.mG, creditS: L.creditS, creditG: L.creditG,
     waterDesign: L.g.wc * L.Cnom, waterUsed: total, totalWater, wcActual, ceilingNet: L.ceilingNet,
@@ -1050,6 +1173,8 @@ document.addEventListener('click', (ev) => {
   }
   if (act === 'grade-del') {
     if (S.grades.length <= 1) return;
+    const del = S.grades.find((x) => x.id === a.dataset.id);
+    if (!confirm(t('Delete') + (del ? ` “${del.name}”?` : '?'))) return;
     S.grades = S.grades.filter((g) => g.id !== a.dataset.id);
     if (!S.grades.find((g) => g.id === S.gradeId)) S.gradeId = S.grades[0].id;
     save(); return render();
@@ -1141,6 +1266,12 @@ document.addEventListener('toggle', (ev) => {
 
 $('#btnLang').addEventListener('click', () => {
   S.lang = S.lang === 'en' ? 'id' : 'en'; save(); render();
+});
+
+/* Header "?" — the process rules, reachable from any screen */
+$('#btnTips').addEventListener('click', () => {
+  screen = screen === 'Tips' ? 'Batch' : 'Tips';
+  render();
 });
 
 load();
