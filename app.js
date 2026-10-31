@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.3.1';
+const VERSION = '1.4.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -63,7 +63,8 @@ const ID = {
   'sand': 'pasir', 'gravel': 'kerikil',
   'Pour / element': 'Coran / elemen', 'Tips': 'Panduan', 'Back': 'Kembali', 'Resume': 'Lanjutkan',
   'Cast': 'Cetak', 'due now': 'sudah jatuh tempo', 'due in': 'jatuh tempo dalam', 'Pours': 'Coran',
-  'Ungrouped': 'Tanpa coran'
+  'Ungrouped': 'Tanpa coran',
+  'Staging': 'Persiapan', 'Staged': 'Siap', 'Slump test': 'Uji slump'
 };
 
 let LANG = 'en';
@@ -362,6 +363,7 @@ const infoNote = (k) => `<div class="note info" id="info-${k}" style="display:no
 const TABS = ['Batch', 'Slump', 'Diary', 'Grades', 'Calibration', 'Cost', 'Settings'];
 const ICONS = { Batch: '🧱', Slump: '📏', Diary: '📖', Grades: '📋', Calibration: '⚖️', Cost: '💰', Settings: '⚙️' };
 let screen = 'Batch';
+let stageOpen = false;   // staging checklist expanded after the first slump reading
 const openGrades = new Set();
 
 function renderTabs() {
@@ -538,6 +540,29 @@ function syncBatch() {
 }
 
 /* ---- Slump ---- */
+/* Staging checklist for one batch: what goes in the drum, in order. Values are
+   frozen in the live batch, so the list does not move while the mix is running. */
+function stageSteps(L) {
+  const id = LANG === 'id';
+  const buckets = (n, per, kg) => {
+    if (n == null || !per) return `${nf(kg, 1)} kg`;
+    const full = Math.floor(n), rem = n - full;
+    return rem < 0.005
+      ? `${full} ${t('buckets')} · ${nf(kg, 1)} kg`
+      : `${full} ${t('buckets')} + ${rem.toFixed(2)} · ${nf(kg, 1)} kg`;
+  };
+  const out = [
+    { m: t('Sand'), s: buckets(L.bucketSand, L.bS, L.wetSand) },
+    { m: t('Gravel'), s: buckets(L.bucketGrav, L.bG, L.wetGrav) },
+    { m: t('Cement'), s: `${nf(L.n, L.n % 1 ? 1 : 0)} × ${L.sack} kg = ${nf(L.Cact, 0)} kg` },
+    { m: id ? 'Aduk kering' : 'Dry mix', s: id ? 'pasir + kerikil 1 menit, lalu semen, aduk 1 menit' : 'sand + gravel 1 min, then cement, mix 1 min' }
+  ];
+  if (L.spL > 0) out.push({ m: t('Plasticizer'), s: `${nf(L.spL * 1000, 0)} mL — ${id ? 'encerkan di setengah air awal, jangan ke bahan kering' : 'diluted in half the start water, never onto dry material'}` });
+  out.push({ m: t('Start water'), s: `${nf(L.startWater, 1)} L — ${id ? 'aduk 2 menit' : 'mix 2 minutes'}` });
+  out.push({ m: t('Slump test'), s: id ? 'ukur, lalu masukkan angkanya di bawah' : 'measure, then enter the reading below' });
+  return out;
+}
+
 function viewSlump() {
   if (!S.live) {
     return `<div class="card center"><h2>${t('Slump')}</h2>
@@ -591,11 +616,25 @@ function viewSlump() {
   const tgtC = Math.round(effTarget(L));
   const chips = [tgtC - 6, tgtC - 4, tgtC - 2, tgtC, tgtC + 2, tgtC + 4].filter((v) => v > 0);
 
+  /* Staging checklist — open until the first slump reading, then one quiet line. */
+  const steps = stageSteps(L);
+  const done = steps.map((_, i) => !!(L.steps && L.steps[i]));
+  const doneN = done.filter(Boolean).length;
+  const stageRow = (st, i) => `<button class="step ${done[i] ? 'done' : ''}" data-step="${i}">
+      <span class="n">${done[i] ? '✓' : i + 1}</span>
+      <span class="t"><b>${st.m}</b><span class="s">${st.s}</span></span></button>`;
+  const stageBlock = L.slumps.length === 0
+    ? `<div class="stage-h">${t('Staging')} <span class="fine">${doneN}/${steps.length}</span></div>
+       <div class="stage">${steps.map(stageRow).join('')}</div>`
+    : `<button class="small wide" data-stage-toggle="1">${t('Staged')} ${doneN}/${steps.length} ✓ ${stageOpen ? '▾' : '▸'}</button>
+       ${stageOpen ? `<div class="stage">${steps.map(stageRow).join('')}</div>` : ''}`;
+
   return `
   <div class="card">
     <h2>${esc(L.gradeName)} · ${nf(L.Cact, 0)} kg ${t('Cement').toLowerCase()} <span class="sub">${t('target')} ${effTarget(L)} ± ${effBand(L)} cm</span></h2>
-    <div class="stat hero" style="border-bottom:none;padding-top:0"><span class="k">${t('Pour now')}</span><span class="v"><span>${nf(L.nextAdd || 0, 1)}</span><span class="unit">L</span></span></div>
-    <div style="margin-top:2px">${guidance}</div>
+    ${stageBlock}
+    ${L.slumps.length === 0 ? '' : `<div class="stat hero" style="border-bottom:none;padding-top:0"><span class="k">${t('Pour now')}</span><span class="v"><span>${nf(L.nextAdd || 0, 1)}</span><span class="unit">L</span></span></div>
+    <div style="margin-top:2px">${guidance}</div>`}
     <div class="stat" style="margin-top:10px"><span class="k">${t('Water')} ${LANG === 'id' ? 'di drum' : 'in drum'}</span><span class="v sm">${nf(L.poured, 1)} L</span></div>
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span>${nf(L.ceilingNet, 1)}</span><span class="unit">L</span></span></div>
     ${infoNote('ceil')}
@@ -1001,7 +1040,7 @@ function startBatch() {
     mS: s.mS, mG: s.mG, creditS: s.creditS, creditG: s.creditG,
     bucketSand: s.bucketSand, bucketGrav: s.bucketGrav, bS: s.bS, bG: s.bG,
     poured: 0, nextAdd: s.startWater, adds: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0,
-    pour: String(S.pourTag || '').trim(),
+    pour: String(S.pourTag || '').trim(), steps: [], startWater: s.startWater,
     target: (+s.g.tslump > 0 ? +s.g.tslump : +S.targetSlump), band: +S.band
   };
   save(); screen = 'Slump'; render();
@@ -1136,6 +1175,15 @@ document.addEventListener('click', (ev) => {
     chip.classList.add('on');
     return;
   }
+  const stepEl = ev.target.closest('[data-step]');
+  if (stepEl && S.live) {
+    const i = +stepEl.dataset.step;
+    S.live.steps = S.live.steps || [];
+    S.live.steps[i] = !S.live.steps[i];
+    save(); render(); return;
+  }
+  const stageTog = ev.target.closest('[data-stage-toggle]');
+  if (stageTog) { stageOpen = !stageOpen; render(); return; }
   const ib = ev.target.closest('[data-info]');
   if (ib) {
     const note = document.getElementById('info-' + ib.dataset.info);

@@ -155,6 +155,31 @@ button:disabled{opacity:.45;cursor:default}
 .quick button{min-height:52px;font-size:20px;font-weight:800;background:#eef1f4;border:2px solid var(--line);border-radius:12px;padding:0}
 .quick button.on{background:var(--accent);border-color:var(--accent);color:#fff}
 
+/* staging checklist — tap a row when that material is in the drum */
+.stage-h{
+  display:flex;justify-content:space-between;align-items:baseline;
+  font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+  margin:2px 0 7px;
+}
+.stage{display:flex;flex-direction:column;gap:6px;margin:0 0 8px}
+.stage button.step{
+  display:flex;gap:10px;align-items:flex-start;text-align:left;width:100%;
+  min-height:52px;padding:9px 11px;background:#fff;
+  border:2px solid var(--line);border-radius:12px;
+  font-size:15px;font-weight:600;color:var(--ink);line-height:1.25;
+}
+.stage button.step .n{
+  flex:0 0 auto;width:24px;height:24px;border-radius:50%;
+  border:2px solid var(--line);color:var(--muted);
+  display:flex;align-items:center;justify-content:center;
+  font-size:13px;font-weight:800;line-height:1;
+}
+.stage button.step .t{display:flex;flex-direction:column;gap:2px;padding-top:1px}
+.stage button.step .s{font-size:13px;font-weight:400;color:var(--muted);line-height:1.35}
+.stage button.step.done{background:#eef6f1;border-color:#a8d8b5}
+.stage button.step.done .n{background:var(--ok);border-color:var(--ok);color:#fff}
+.stage button.step.done .t b{color:var(--muted);text-decoration:line-through}
+
 button.xs{min-height:36px;padding:5px 10px;font-size:13px;background:transparent;border:1px solid var(--line);color:var(--danger);font-weight:650}
 .mini{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:2px}
 
