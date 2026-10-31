@@ -138,6 +138,15 @@ button:disabled{opacity:.45;cursor:default}
 button.xs{min-height:36px;padding:5px 10px;font-size:13px;background:transparent;border:1px solid var(--line);color:var(--danger);font-weight:650}
 .mini{font-size:12.5px;color:var(--muted);font-weight:600;margin-top:2px}
 
+button.info{
+  width:28px;height:28px;min-height:0;padding:0;border-radius:50%;
+  border:1.5px solid var(--line);background:#fff;color:var(--muted);
+  font-size:15px;font-weight:800;line-height:1;display:inline-flex;align-items:center;justify-content:center;
+  vertical-align:middle;margin-left:2px;flex:0 0 auto;
+}
+button.info.on{border-color:var(--accent);color:var(--accent);background:#eaf4f2}
+.stat .k{display:flex;align-items:center;gap:4px}
+
 .list{display:flex;flex-direction:column;gap:8px}
 .item{
   border:1px solid var(--line);border-radius:12px;padding:11px 12px;background:#fff;

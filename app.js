@@ -54,7 +54,9 @@ const ID = {
   'of mixer': 'dari molen', 'Pour now': 'Tuang sekarang',
   'Water to pour': 'Air untuk dituang', 'Water in aggregate': 'Air dalam agregat',
   'Readymix per m3': 'Readymix per m3', 'Calib': 'Kalib', 'exact': 'pas',
-  'fill calibration': 'isi kalibrasi', 'Remaining': 'Sisa'
+  'fill calibration': 'isi kalibrasi', 'Remaining': 'Sisa',
+  'Reset': 'Kembalikan', 'Reset settings to defaults': 'Kembalikan setelan ke awal',
+  'Reset recipes to defaults': 'Kembalikan resep ke awal', 'Jayamix design': 'Desain Jayamix'
 };
 
 let LANG = 'en';
@@ -79,8 +81,8 @@ function setPath(obj, path, val) {
 const DEFAULT_GRADES = () => ([
   { id: 'g300s', key: 'K300', name: 'K300 — site mix',        source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.500,  sp: 0 },
   { id: 'g250s', key: 'K250', name: 'K250 — site mix',        source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.550,  sp: 0 },
-  { id: 'g300r', key: 'K300', name: 'K300 — readymix design', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.00452 },
-  { id: 'g250r', key: 'K250', name: 'K250 — readymix design', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.00500 }
+  { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.00452 },
+  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.00500 }
 ]);
 
 const DEFAULTS = () => ({
@@ -118,6 +120,10 @@ function load() {
     S.prices = Object.assign(DEFAULTS().prices, d.prices || {});
     if (!Array.isArray(S.grades) || !S.grades.length) S.grades = DEFAULT_GRADES();
     if (!Array.isArray(S.log)) S.log = [];
+    // migration: the readymix preset is Jayamix (SCG Readymix Indonesia)
+    S.grades.forEach((g) => {
+      if (g && typeof g.name === 'string') g.name = g.name.replace(/readymix design/i, 'Jayamix design');
+    });
   } catch (e) { console.warn('load failed', e); }
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.warn('save failed', e); } }
@@ -211,6 +217,24 @@ function anyPrice() {
   return !!(p.cement || p.sandPerM3 || p.gravelPerM3 || p.spPerL || p.waterPerM3);
 }
 
+/* ------------------------------------------------------------ inline help */
+const INFO = {
+  buffer: ['Extra cement on top of the recipe. Sand and gravel scale up with it, but the water stays at the <b>nominal</b> recipe — so the real w/c drops: +5% cement buys about 5% water-overrun tolerance (1 L per 40 kg sack). 0 = no margin, the ceiling is then exactly the recipe water.',
+    'Semen tambahan di atas resep. Pasir dan kerikil ikut naik, tetapi air tetap pada resep <b>nominal</b> — jadi w/c nyata turun: +5% semen memberi toleransi kelebihan air sekitar 5% (1 L per karung 40 kg). 0 = tanpa cadangan, batas air sama dengan resep.'],
+  start: ['The first pour, before the first slump test — 85% of the water budget. The remaining part is used to trim the mix up to the target slump.',
+    'Tuangan pertama sebelum uji slump — 85% dari anggaran air. Sisanya dipakai untuk menyetel campuran sampai slump target.'],
+  wpour: ['Water you must actually pour: recipe water minus the free water already sitting in the sand and gravel. If you have not measured moisture, it equals the recipe water.',
+    'Air yang benar-benar harus dituang: air resep dikurangi air bebas yang sudah ada di pasir dan kerikil. Kalau kadar air tidak diukur, nilainya sama dengan air resep.'],
+  ceil: ['Hard stop — never pour more than this. It is measured against the cement actually in the drum (including the buffer). With buffer 0 it equals “water to pour”; the gap between the two <b>is</b> the buffer margin. Nothing else can make them differ.',
+    'Batas keras — jangan menuang lebih dari ini. Dihitung terhadap semen yang benar-benar ada di drum (termasuk cadangan). Dengan cadangan 0 nilainya sama dengan “air untuk dituang”; selisih keduanya <b>adalah</b> cadangan semen. Tidak ada hal lain yang membuat keduanya berbeda.'],
+  buckets: ['Whole level-full buckets, rounded <b>down</b>. The remainder is added as a partial bucket at the end — nothing is ever scooped back out of a full bucket.',
+    'Ember penuh diratakan, dibulatkan <b>ke bawah</b>. Sisanya ditambahkan sebagai sebagian ember di akhir — tidak pernah mengurangi ember yang sudah penuh.'],
+  sp: ['Superplasticizer for this batch. Dilute it into half the mixing water, never onto dry material, and never add water after it. Add in two half-doses with a mix and a slump test between them.',
+    'Plastisizer untuk campuran ini. Encerkan ke setengah air, jangan ke bahan kering, dan jangan menambah air setelahnya. Beri dua setengah dosis dengan aduk dan uji slump di antaranya.']
+};
+const infoBtn = (k) => `<button class="info" data-info="${k}" aria-label="?">?</button>`;
+const infoNote = (k) => `<div class="note info" id="info-${k}" style="display:none">${INFO[k][LANG === 'id' ? 1 : 0]}</div>`;
+
 /* ---------------------------------------------------------------- UI ---- */
 const TABS = ['Batch', 'Slump', 'Diary', 'Grades', 'Calibration', 'Cost', 'Settings'];
 const ICONS = { Batch: '🧱', Slump: '📏', Diary: '📖', Grades: '📋', Calibration: '⚖️', Cost: '💰', Settings: '⚙️' };
@@ -271,28 +295,34 @@ function viewBatch() {
     <details style="margin-top:10px" ${(+S.bufferPct > 0 || +S.mixerL !== 350) ? 'open' : ''}>
       <summary>${t('Cement buffer')} · ${t('Mixer capacity')}</summary>
       <div class="row" style="margin-top:10px">
-        <label class="field" style="margin:0"><span class="lbl">${t('Cement buffer')} (%)</span>
+        <label class="field" style="margin:0"><span class="lbl">${t('Cement buffer')} (%) ${infoBtn('buffer')}</span>
           <input type="number" inputmode="decimal" step="1" min="0" max="30" data-bind="bufferPct" data-num="1" value="${S.bufferPct}">
           <span class="hint">0 = ${LANG === 'id' ? 'tanpa cadangan' : 'no margin'}</span></label>
         <label class="field" style="margin:0"><span class="lbl">${t('Mixer capacity')} (L)</span>
           <input type="number" inputmode="numeric" step="10" min="60" data-bind="mixerL" data-num="1" value="${S.mixerL}">
           <span class="hint">350–400 L ${LANG === 'id' ? 'umum di Bali' : 'typical in Bali'}</span></label>
       </div>
+      ${infoNote('buffer')}
     </details>
   </div>
 
   <div class="card">
-    <h2>${t('Bucket plan')}</h2>
+    <h2>${t('Bucket plan')} <span class="sub">${infoBtn('buckets')}</span></h2>
     <div class="stat hero" style="padding-top:0"><span class="k">${t('Cement')}</span><span class="v"><span id="o-cement">—</span><span class="unit">kg</span></span></div>
     <div class="bigcards" style="margin-top:8px">
       <div class="bigcard"><div class="n" id="o-sandB">—</div><div class="t">${t('Sand')}</div><div class="s" id="o-sandR">—</div><div class="s" id="o-sandKg">—</div></div>
       <div class="bigcard"><div class="n" id="o-gravB">—</div><div class="t">${t('Gravel')}</div><div class="s" id="o-gravR">—</div><div class="s" id="o-gravKg">—</div></div>
     </div>
-    <div class="stat" style="margin-top:12px"><span class="k">${t('Start water')} (${S.startWaterPct}%)</span><span class="v"><span id="o-startW">—</span><span class="unit">L</span></span></div>
-    <div class="stat"><span class="k">${t('Water to pour')}</span><span class="v"><span id="o-totalW">—</span><span class="unit">L</span></span></div>
+    ${infoNote('buckets')}
+    <div class="stat" style="margin-top:12px"><span class="k">${t('Start water')} (${S.startWaterPct}%) ${infoBtn('start')}</span><span class="v"><span id="o-startW">—</span><span class="unit">L</span></span></div>
+    ${infoNote('start')}
+    <div class="stat"><span class="k">${t('Water to pour')} ${infoBtn('wpour')}</span><span class="v"><span id="o-totalW">—</span><span class="unit">L</span></span></div>
+    ${infoNote('wpour')}
     <div class="stat" id="row-credit" style="display:none"><span class="k">${t('Water in aggregate')}</span><span class="v"><span id="o-credit">—</span><span class="unit">L</span></span></div>
-    <div class="stat"><span class="k">${t('Water ceiling')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
-    <div class="stat" id="row-sp" style="display:none"><span class="k">${t('Plasticizer')}</span><span class="v"><span id="o-sp">—</span><span class="unit">mL</span></span></div>
+    <div class="stat"><span class="k">${t('Water ceiling')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
+    ${infoNote('ceil')}
+    <div class="stat" id="row-sp" style="display:none"><span class="k">${t('Plasticizer')} ${infoBtn('sp')}</span><span class="v"><span id="o-sp">—</span><span class="unit">mL</span></span></div>
+    ${infoNote('sp')}
     <div class="stat"><span class="k">${t('Batch volume')}</span><span class="v"><span id="o-vol">—</span><span class="unit">m³</span> <span class="fine" id="o-volpct"></span></span></div>
     <div id="warn"></div>
     <button class="primary wide" style="margin-top:14px" data-action="start">${t('Start batch')} →</button>
@@ -393,7 +423,8 @@ function viewSlump() {
     <div class="stat hero" style="border-bottom:none;padding-top:0"><span class="k">${t('Pour now')}</span><span class="v"><span>${nf(L.nextAdd || 0, 1)}</span><span class="unit">L</span></span></div>
     <div style="margin-top:2px">${guidance}</div>
     <div class="stat" style="margin-top:10px"><span class="k">${t('Water')} ${LANG === 'id' ? 'di drum' : 'in drum'}</span><span class="v sm">${nf(L.poured, 1)} L</span></div>
-    <div class="stat"><span class="k">${t('Water ceiling')}</span><span class="v sm">${nf(L.ceilingNet, 1)} L</span></div>
+    <div class="stat"><span class="k">${t('Water ceiling')} ${infoBtn('ceil')}</span><span class="v sm">${nf(L.ceilingNet, 1)} L</span></div>
+    ${infoNote('ceil')}
   </div>
 
   <div class="card">
@@ -469,7 +500,7 @@ function viewGrades() {
             <label class="field" style="margin:0"><span class="lbl">${t('Source')}</span>
               <select data-grade="${g.id}" data-gf="source">
                 <option value="site" ${g.source === 'site' ? 'selected' : ''}>${t('Site mix')}</option>
-                <option value="rmx" ${g.source === 'rmx' ? 'selected' : ''}>${t('Readymix design')}</option>
+                <option value="rmx" ${g.source === 'rmx' ? 'selected' : ''}>${t('Jayamix design')}</option>
               </select></label>
             <div style="display:flex;align-items:flex-end"><button class="xs wide" style="color:var(--danger)" data-action="grade-del" data-id="${g.id}">${t('Delete')}</button></div>
           </div>
@@ -478,7 +509,7 @@ function viewGrades() {
       </details>`;
     }).join('')}
     <button class="dark wide" data-action="grade-add">+ ${t('Add grade')}</button>
-    <button class="small wide" style="margin-top:8px" data-action="grade-reset">${t('Reset defaults')}</button>
+    <button class="small wide" style="margin-top:8px" data-action="grade-reset">${t('Reset recipes to defaults')}</button>
   </div>`;
 }
 
@@ -664,8 +695,13 @@ function viewSettings() {
   </div>
 
   <div class="card">
-    <h2>${t('Danger zone')}</h2>
+    <h2>${t('Reset')}</h2>
+    <button class="small wide" data-action="reset-settings">${t('Reset settings to defaults')}</button>
+    <div class="fine" style="margin:4px 0 10px">${LANG === 'id' ? 'menyimpan catatan campuran dan tabel mutu' : 'keeps the batch diary and the recipe table'}</div>
+    <button class="small wide" data-action="grade-reset">${t('Reset recipes to defaults')}</button>
+    <div class="fine" style="margin:4px 0 10px">${LANG === 'id' ? 'mengganti tabel mutu dengan 4 resep awal' : 'restores the four default recipes'}</div>
     <button class="danger wide" data-action="wipe">${t('Erase all data')}</button>
+    <div class="fine" style="margin-top:4px">${LANG === 'id' ? 'menghapus semuanya, termasuk catatan' : 'deletes everything, including the diary'}</div>
   </div>
 
   <div class="card fine">
@@ -750,6 +786,15 @@ function finishBatch() {
   toast(LANG === 'id' ? 'Campuran tersimpan' : 'Batch saved');
 }
 
+function resetSettings() {
+  const d = DEFAULTS();
+  ['sackSize', 'sacks', 'bufferPct', 'startWaterPct', 'targetSlump', 'band', 'mixerL', 'cementType', 'kPerM3PerCm', 'spMaxPct']
+    .forEach((k) => { S[k] = d[k]; });
+  S.cal = d.cal; S.moist = d.moist; S.prices = d.prices; S.live = null;
+  save(); render();
+  toast(LANG === 'id' ? 'Setelan dikembalikan' : 'Settings reset');
+}
+
 function toast(msg) {
   const d = document.createElement('div');
   d.textContent = msg;
@@ -797,6 +842,17 @@ document.addEventListener('click', (ev) => {
     chip.classList.add('on');
     return;
   }
+  const ib = ev.target.closest('[data-info]');
+  if (ib) {
+    const note = document.getElementById('info-' + ib.dataset.info);
+    if (note) {
+      const wasOpen = note.style.display !== 'none';
+      $$('.card .note.info[id^="info-"]').forEach((n) => { n.style.display = 'none'; });
+      note.style.display = wasOpen ? 'none' : 'block';
+      ib.classList.toggle('on', !wasOpen);
+    }
+    return;
+  }
   const a = ev.target.closest('[data-action]');
   if (!a) return;
   const act = a.dataset.action;
@@ -827,7 +883,14 @@ document.addEventListener('click', (ev) => {
     if (!S.grades.find((g) => g.id === S.gradeId)) S.gradeId = S.grades[0].id;
     save(); return render();
   }
-  if (act === 'grade-reset') { S.grades = DEFAULT_GRADES(); S.gradeId = S.grades[0].id; save(); return render(); }
+  if (act === 'grade-reset') {
+    if (!confirm(t('Reset recipes to defaults') + '?')) return;
+    S.grades = DEFAULT_GRADES(); S.gradeId = S.grades[0].id; save(); return render();
+  }
+  if (act === 'reset-settings') {
+    if (!confirm(t('Reset settings to defaults') + '?')) return;
+    return resetSettings();
+  }
   if (act === 'add-w') {
     const kind = a.dataset.kind;
     const inp = document.getElementById(kind === 'sand' ? 'wSand' : 'wGravel');

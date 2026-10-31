@@ -73,13 +73,13 @@ breakEven(Rp/L) = (costOfNoSPRecipe - costOfSPRecipeExcludingSP) / SP litres
 |---|---|---|---|---|---|
 | K300 site mix | 1.80 | 2.75 | 0.50 | 387 kg | 36.7 MPa ≈ K374 |
 | K250 site mix | 2.05 | 3.10 | 0.55 | 349 kg | 31.8 MPa ≈ K324 |
-| K300 readymix design | 3.367 | 2.857 | 0.595 | 300 kg | 27.9 MPa ≈ K285 (needs SP) |
-| K250 readymix design | 3.817 | 3.206 | 0.668 | 270 kg | 22.6 MPa ≈ K231 (needs SP) |
+| K300 Jayamix design | 3.367 | 2.857 | 0.595 | 300 kg | 27.9 MPa ≈ K285 (needs SP) |
+| K250 Jayamix design | 3.817 | 3.206 | 0.668 | 270 kg | 22.6 MPa ≈ K231 (needs SP) |
 
-The two readymix rows are derived from PT SCG Readymix Indonesia mix design
-427/E-MD-SRMI/VIII/2026 (K-250/K-300, 10+-2 cm slump, SSD). Their **retarder is
-deliberately dropped** — it exists for truck transit, not site mixing. Those mixes
-are only workable with superplasticizer at that cement content.
+The two Jayamix rows are derived from the PT SCG Readymix Indonesia (Jayamix) mix
+design 427/E-MD-SRMI/VIII/2026 for this project (K-250/K-300, 10+-2 cm slump, SSD).
+Their **retarder is deliberately dropped** — it exists for truck transit, not site
+mixing. Those mixes are only workable with superplasticizer at that cement content.
 
 Note the estimate lands *below* their nominal K250/K300 for those two rows. That is
 the model being honest, not a criticism of their design: readymix uses strength-class
