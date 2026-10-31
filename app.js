@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.4.0';
+const VERSION = '1.5.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -393,7 +393,6 @@ function viewBatch() {
   const s = snapshot();
   const g = s.g;
   const noCal = !s.bS || !s.bG;
-  const pct = S.mixerL ? Math.round(s.vol * 1000 / S.mixerL * 100) : 0;
   const wc = g.wc;
   const est = strengthMPa(wc);
 
@@ -428,18 +427,6 @@ function viewBatch() {
       ${g.source === 'rmx' ? `<br><span class="fine">*${LANG === 'id' ? ' kurva umum — campuran kurus dengan aditif biasanya lebih tinggi dari ini' : ' generic curve — lean admixture mixes usually test higher than this'}</span>` : ''}
     </div>
     ${infoNote('strength')}
-    <details style="margin-top:10px" ${(+S.bufferPct > 0 || +S.mixerL !== 350) ? 'open' : ''}>
-      <summary>${t('Cement buffer')} · ${t('Mixer capacity')}</summary>
-      <div class="row" style="margin-top:10px">
-        <label class="field" style="margin:0"><span class="lbl">${t('Cement buffer')} (%) ${infoBtn('buffer')}</span>
-          <input type="number" inputmode="decimal" step="1" min="0" max="30" data-bind="bufferPct" data-num="1" value="${S.bufferPct}">
-          <span class="hint">0 = ${LANG === 'id' ? 'tanpa cadangan' : 'no margin'}</span></label>
-        <label class="field" style="margin:0"><span class="lbl">${t('Mixer capacity')} (L)</span>
-          <input type="number" inputmode="numeric" step="10" min="60" data-bind="mixerL" data-num="1" value="${S.mixerL}">
-          <span class="hint">350–400 L ${LANG === 'id' ? 'umum di Bali' : 'typical in Bali'}</span></label>
-      </div>
-      ${infoNote('buffer')}
-    </details>
   </div>
 
   <div class="card">
@@ -524,7 +511,7 @@ function syncBatch() {
   set('o-spPct', `(${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari semen' : 'of cement'})`);
   set('o-vol', nf(s.vol, 3));
   const pct = S.mixerL ? Math.round(s.vol * 1000 / S.mixerL * 100) : 0;
-  set('o-volpct', `${pct}% ${LANG === 'id' ? 'dari molen' : 'of mixer'}`);
+  set('o-volpct', `${pct}% ${LANG === 'id' ? `dari molen ${S.mixerL} L` : `of the ${S.mixerL} L mixer`}`);
   const row = document.getElementById('row-sp'); if (row) row.style.display = s.spL > 0 ? '' : 'none';
 
   const w = [];
@@ -1004,6 +991,22 @@ function viewSettings() {
       <span class="hint">MPa · ${LANG === 'id' ? 'sebaran hasil kubus di site ini' : 'spread of cube results on this site'}</span></label>
     ${infoNote('strength')}
     <div class="note info">${S.cementType} · ${t('Strength estimate')}: ${strengthLabel(strengthMPa(grade().wc), grade().source)} @ w/c ${grade().wc.toFixed(3)}${A ? `<br>${LANG === 'id' ? 'Dari kubus Anda' : 'From your cubes'}: A ≈ ${nf(A, 0)} (${LANG === 'id' ? 'model default' : 'default model'} ${STRENGTH.A[S.cementType]})` : ''}</div>
+  </div>
+
+  <div class="card">
+    <h2>${LANG === 'id' ? 'Molen & cadangan' : 'Mixer & margin'}</h2>
+    <div class="row" style="align-items:flex-end">
+      <label class="field" style="margin:0"><span class="lbl">${t('Mixer capacity')} (L)</span>
+        <input type="number" inputmode="numeric" step="10" min="60" data-bind="mixerL" data-num="1" value="${S.mixerL}">
+        <span class="hint">350–400 L ${LANG === 'id' ? 'umum di Bali' : 'typical in Bali'}</span></label>
+      <label class="field" style="margin:0"><span class="lbl">${t('Cement buffer')} (%) ${infoBtn('buffer')}</span>
+        <input type="number" inputmode="decimal" step="1" min="0" max="30" data-bind="bufferPct" data-num="1" value="${S.bufferPct}">
+        <span class="hint">0 = ${LANG === 'id' ? 'tanpa cadangan' : 'no margin'}</span></label>
+    </div>
+    ${infoNote('buffer')}
+    <div class="fine" style="margin-top:8px">${LANG === 'id'
+      ? 'Berlaku untuk semua campuran: kapasitas molen menentukan peringatan kelebihan, cadangan semen menurunkan batas air.'
+      : 'Applies to every batch: capacity drives the over-capacity warning, the buffer lowers the water ceiling.'}</div>
   </div>
 
   <div class="card">
