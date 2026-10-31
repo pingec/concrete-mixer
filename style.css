@@ -147,6 +147,15 @@ button.info{
 button.info.on{border-color:var(--accent);color:var(--accent);background:#eaf4f2}
 .stat .k{display:flex;align-items:center;gap:4px}
 
+/* hard limit — the one number nobody may exceed */
+.stat.limit{
+  background:var(--danger-bg);border:1px solid #f0b3ad;border-radius:12px;
+  padding:11px 13px;margin-top:10px;
+}
+.stat.limit .k{color:var(--danger);font-weight:800;font-size:15px}
+.stat.limit .v{color:var(--danger);font-weight:850;font-size:27px}
+.stat.limit .v .unit{color:var(--danger);opacity:.75}
+
 .list{display:flex;flex-direction:column;gap:8px}
 .item{
   border:1px solid var(--line);border-radius:12px;padding:11px 12px;background:#fff;

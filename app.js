@@ -16,7 +16,7 @@ const ID = {
   'Cement': 'Semen', 'Sand': 'Pasir', 'Gravel': 'Kerikil (split)',
   'Start batch': 'Mulai campuran', 'Finish batch': 'Selesai',
   'Cancel batch': 'Batalkan', 'Record slump': 'Catat slump',
-  'Total water': 'Total air', 'Water ceiling': 'Batas air',
+  'Total water': 'Total air', 'Water ceiling': 'Batas air', 'Max total water': 'Air maksimum',
   'Start water': 'Air awal', 'Plasticizer': 'Plastisizer (SP)',
   'Batch volume': 'Volume campuran', 'Mixer capacity': 'Kapasitas molen',
   'Full buckets': 'Ember penuh', 'remainder': 'sisa',
@@ -380,7 +380,8 @@ function viewBatch() {
     <div class="stat"><span class="k">${t('Water to pour')} ${infoBtn('wpour')}</span><span class="v"><span id="o-totalW">—</span><span class="unit">L</span></span></div>
     ${infoNote('wpour')}
     <div class="stat" id="row-credit" style="display:none"><span class="k">${t('Water in aggregate')}</span><span class="v"><span id="o-credit">—</span><span class="unit">L</span></span></div>
-    <div class="stat"><span class="k">${t('Water ceiling')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
+    <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
+    <div class="fine" id="o-ceilNote" style="margin-top:-4px"></div>
     ${infoNote('ceil')}
     <div class="stat" id="row-sp" style="display:none"><span class="k">${t('Plasticizer')} ${infoBtn('sp')}</span><span class="v"><span id="o-sp">—</span><span class="unit">mL</span> <span class="fine" id="o-spPct"></span></span></div>
     ${infoNote('sp')}
@@ -417,6 +418,10 @@ function syncBatch() {
   set('o-startW', nf(s.startWater, 1));
   set('o-totalW', nf(s.waterCorrected, 1));
   set('o-ceilW', nf(s.ceilingNet, 1));
+  const margin = s.ceilingNet - s.waterCorrected;
+  set('o-ceilNote', Math.abs(margin) < 0.05
+    ? (LANG === 'id' ? 'sama dengan air untuk dituang — tanpa cadangan semen' : 'same as water to pour — no cement buffer set')
+    : (LANG === 'id' ? `cadangan semen ${nf(margin, 1)} L` : `cement buffer margin ${nf(margin, 1)} L`));
   set('o-credit', nf(s.creditS + s.creditG, 1));
   const rowCredit = document.getElementById('row-credit');
   if (rowCredit) rowCredit.style.display = (s.creditS + s.creditG) > 0.05 ? '' : 'none';
@@ -467,7 +472,7 @@ function viewSlump() {
     const add = nextWater(L, last);
     const kL = (+S.kPerM3PerCm || 2.4) * L.vol;
     if (add < 0.1) {
-      guidance = `<div class="note danger"><b>${LANG === 'id' ? 'Batas air tercapai' : 'Water ceiling reached'}</b> — ${LANG === 'id'
+      guidance = `<div class="note danger"><b>${LANG === 'id' ? 'Batas air tercapai' : 'Water limit reached'}</b> — ${LANG === 'id'
         ? 'Slump masih di bawah ' + lo + ' cm. Pakai plastisizer sesuai dosis, atau tambah semen + agregat proporsional. Jangan tambah air.'
         : 'Slump is still below ' + lo + ' cm. Use plasticizer at the label dose, or add cement + aggregate proportionally. No more water.'}</div>`;
     } else {
@@ -488,7 +493,7 @@ function viewSlump() {
     <div class="stat hero" style="border-bottom:none;padding-top:0"><span class="k">${t('Pour now')}</span><span class="v"><span>${nf(L.nextAdd || 0, 1)}</span><span class="unit">L</span></span></div>
     <div style="margin-top:2px">${guidance}</div>
     <div class="stat" style="margin-top:10px"><span class="k">${t('Water')} ${LANG === 'id' ? 'di drum' : 'in drum'}</span><span class="v sm">${nf(L.poured, 1)} L</span></div>
-    <div class="stat"><span class="k">${t('Water ceiling')} ${infoBtn('ceil')}</span><span class="v sm">${nf(L.ceilingNet, 1)} L</span></div>
+    <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span>${nf(L.ceilingNet, 1)}</span><span class="unit">L</span></span></div>
     ${infoNote('ceil')}
   </div>
 
