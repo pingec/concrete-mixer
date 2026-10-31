@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -106,6 +106,7 @@ const DEFAULTS = () => ({
   spUnitV2: true,
   sigmaMPa: 5,
   wcTrimV2: true,
+  defaultsV: 2,
   cal: { tare: 0, bucketL: 12, sandWeigh: [], gravelWeigh: [], date: null },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
   prices: { cement: 0, sandPerM3: 0, gravelPerM3: 0, spPerL: 0, waterPerM3: 0, rmxPerM3: 1400000 },
@@ -149,6 +150,13 @@ function load() {
         if (g.id === 'g250s' && Math.abs(+g.wc - 0.550) < 1e-6) g.wc = 0.540;
       });
       S.wcTrimV2 = true;
+    }
+    // migration: ship new built-in presets to existing installs (only ones never seen)
+    if (!(+d.defaultsV >= 2)) {
+      const have = new Set(S.grades.map((g) => g.id));
+      const pile = DEFAULT_GRADES().find((g) => g.id === 'gpile');
+      if (pile && !have.has(pile.id)) S.grades.push(pile);
+      S.defaultsV = 2;
     }
   } catch (e) { console.warn('load failed', e); }
 }
@@ -1089,5 +1097,7 @@ LANG = S.lang || 'en';
 render();
 
 if ('serviceWorker' in navigator && location.protocol === 'https:') {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  navigator.serviceWorker.register('sw.js')
+    .then((reg) => reg.update().catch(() => {}))
+    .catch(() => {});
 }

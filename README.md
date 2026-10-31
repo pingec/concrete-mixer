@@ -112,6 +112,16 @@ and 7/28-day cubes before trusting them on structure.
    plus a remainder; nothing is ever subtracted from a full bucket.
 5. **Slump** — pour the start water, measure, record. Follow the addition, repeat.
 
+## Deploying an update
+
+1. Bump `VERSION` in `app.js` **and** the `?v=` query on `style.css` / `app.js` in `index.html`.
+2. Bump `CACHE` in `sw.js`.
+3. Push to `main`; GitHub Pages rebuilds in ~30-60 s.
+
+The `?v=` query matters: it forces a fresh fetch even when an older cache-first
+service worker is still installed on a phone. `sw.js` is network-first, so after
+that first load every later visit gets the current build.
+
 ## Data
 
 Everything lives in `localStorage` under `concrete-mix-v1`. Export CSV (spreadsheet)
