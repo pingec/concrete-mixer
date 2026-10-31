@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.1.3';
+const VERSION = '1.2.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -106,10 +106,10 @@ const DEFAULTS = () => ({
   spUnitV2: true,
   sigmaMPa: 5,
   wcTrimV2: true,
-  defaultsV: 3,
-  cal: { tare: 0, bucketL: 12, sandWeigh: [], gravelWeigh: [], date: null },
+  defaultsV: 4,
+  cal: { tare: 2, bucketL: 20, sandWeigh: [36], gravelWeigh: [30], date: new Date().toISOString().slice(0, 10) },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
-  prices: { cement: 0, sandPerM3: 0, gravelPerM3: 0, spPerL: 0, waterPerM3: 0, rmxPerM3: 1400000 },
+  prices: { cement: 64000, sandPerM3: 550000, gravelPerM3: 550000, spPerL: 90000, waterPerM3: 0, rmxPerM3: 1400000 },
   log: [],
   live: null
 });
@@ -165,6 +165,18 @@ function load() {
         p.name = DEFAULT_GRADES().find((g) => g.id === 'gpile').name;
       }
       S.defaultsV = 3;
+    }
+    // migration: site prices + a starter bucket calibration so bucket counts show on first open.
+    // Only blanks are filled — anything already typed by the user is left alone.
+    if (!(+d.defaultsV >= 4)) {
+      const P = { cement: 64000, sandPerM3: 550000, gravelPerM3: 550000, spPerL: 90000 };
+      Object.keys(P).forEach((k) => { if (!(+S.prices[k] > 0)) S.prices[k] = P[k]; });
+      if (!(+S.cal.tare > 0)) S.cal.tare = 2;
+      if (!(+S.cal.bucketL > 0) || Math.abs(+S.cal.bucketL - 12) < 1e-9) S.cal.bucketL = 20;
+      if (!Array.isArray(S.cal.sandWeigh) || !S.cal.sandWeigh.length) S.cal.sandWeigh = [36];
+      if (!Array.isArray(S.cal.gravelWeigh) || !S.cal.gravelWeigh.length) S.cal.gravelWeigh = [30];
+      if (!S.cal.date) S.cal.date = new Date().toISOString().slice(0, 10);
+      S.defaultsV = 4;
     }
     // persist migration results so they do not re-run on every load
     if (d.defaultsV !== S.defaultsV || d.spUnitV2 !== S.spUnitV2 || d.wcTrimV2 !== S.wcTrimV2) save();
