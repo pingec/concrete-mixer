@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.1.2';
+const VERSION = '1.1.3';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -85,7 +85,7 @@ const DEFAULT_GRADES = () => ([
   { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.540,  sp: 0 },
   { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48 },
   { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 },
-  { id: 'gpile', key: 'Pile', name: 'Bore Pile Mix (w/c 0.45, slump 16±2)', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, tslump: 16 }
+  { id: 'gpile', key: 'Pile', name: 'K350 — Bore pile mix', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, tslump: 16 }
 ]);
 
 const DEFAULTS = () => ({
@@ -106,7 +106,7 @@ const DEFAULTS = () => ({
   spUnitV2: true,
   sigmaMPa: 5,
   wcTrimV2: true,
-  defaultsV: 2,
+  defaultsV: 3,
   cal: { tare: 0, bucketL: 12, sandWeigh: [], gravelWeigh: [], date: null },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
   prices: { cement: 0, sandPerM3: 0, gravelPerM3: 0, spPerL: 0, waterPerM3: 0, rmxPerM3: 1400000 },
@@ -158,6 +158,16 @@ function load() {
       if (pile && !have.has(pile.id)) S.grades.push(pile);
       S.defaultsV = 2;
     }
+    // migration: name the bore pile preset by its grade (only if the name is untouched)
+    if (!(+d.defaultsV >= 3)) {
+      const p = S.grades.find((g) => g && g.id === 'gpile');
+      if (p && p.name === 'Bore Pile Mix (w/c 0.45, slump 16±2)') {
+        p.name = DEFAULT_GRADES().find((g) => g.id === 'gpile').name;
+      }
+      S.defaultsV = 3;
+    }
+    // persist migration results so they do not re-run on every load
+    if (d.defaultsV !== S.defaultsV || d.spUnitV2 !== S.spUnitV2 || d.wcTrimV2 !== S.wcTrimV2) save();
   } catch (e) { console.warn('load failed', e); }
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.warn('save failed', e); } }
