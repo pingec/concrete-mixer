@@ -724,11 +724,26 @@ function viewCost() {
 
   <div class="card">
     <h2>${t('Cost per batch')} <span class="sub">${esc(s.g.name)}</span></h2>
-    <div class="stat hero"><span class="k">${LANG === 'id' ? 'Biaya campuran ini' : 'This batch'}</span><span class="v">${batchCost ? money(batchCost) : '—'}</span></div>
+    <div class="stat hero"><span class="k">${LANG === 'id' ? 'Campuran ini' : 'This batch'}</span><span class="v">${batchCost ? money(batchCost) : '—'}</span></div>
     <div class="stat"><span class="k">${t('Batch volume')}</span><span class="v sm">${nf(s.vol, 3)} m³</span></div>
     ${batchCost ? `<div class="stat"><span class="k">${t('Cost per m3')}</span><span class="v sm">${money(batchCost / s.vol)}</span></div>` : ''}
-    ${batchCost && rmx ? `<div class="stat"><span class="k">${LANG === 'id' ? 'Hemat vs readymix' : 'Saved vs readymix'}</span><span class="v sm" style="color:var(--ok)">${money(rmx - batchCost / s.vol)} /m³</span></div>` : ''}
-  </div>`;
+  </div>
+
+  ${batchCost && rmx ? `<div class="card">
+    <h2>${LANG === 'id' ? 'Per m³: site vs readymix' : 'Per m³: site vs readymix'}</h2>
+    <table class="grid">
+      <tr><th>${LANG === 'id' ? 'Per m³' : 'Per m³'}</th><th>Rp</th></tr>
+      <tr><td>${esc(s.g.name)}</td><td>${nf(batchCost / s.vol, 0)}</td></tr>
+      <tr><td>${LANG === 'id' ? 'Readymix terkirim' : 'Readymix delivered'}</td><td>${nf(rmx, 0)}</td></tr>
+      <tr class="${rmx >= batchCost / s.vol ? 'win' : ''}"><td>${rmx >= batchCost / s.vol ? (LANG === 'id' ? 'Hemat' : 'Saved') : (LANG === 'id' ? 'Lebih mahal' : 'Costs more')}</td>
+        <td>${nf(Math.abs(rmx - batchCost / s.vol), 0)}${rmx ? ' (' + nf(Math.abs(rmx - batchCost / s.vol) / rmx * 100, 0) + '%)' : ''}</td></tr>
+    </table>
+    <div class="fine" style="margin-top:8px">${LANG === 'id'
+      ? 'Ketiga angka dalam Rp per m³ — selisihnya juga per m³, bukan per campuran.'
+      : 'All three figures are Rp per m³ — the difference is per m³ too, not per batch.'}</div>
+    <div class="stat" style="margin-top:10px"><span class="k">${LANG === 'id' ? 'Selisih campuran ini' : 'On this batch'}</span>
+      <span class="v sm">${money((rmx - batchCost / s.vol) * s.vol)} <span class="fine">${nf(s.vol, 3)} m³</span></span></div>
+  </div>` : ''}`;
 }
 
 /* ---- Settings ---- */
