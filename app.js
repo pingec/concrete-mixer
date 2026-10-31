@@ -168,7 +168,8 @@ function snapshot() {
   const waterCorrected = Math.max(0, waterDesign - creditS - creditG);
   const ceilingNet = Math.max(0, waterCeiling - creditS - creditG);
 
-  const vol = (Cact / SG.cement + wetSand / SG.sand + wetGrav / SG.gravel + (waterCorrected + spL) / 1000) / (1 - AIR);
+  // Volume from SSD masses + all water in the mix (poured + aggregate free water).
+  const vol = (Cact / SG.cement + sandSSD / SG.sand + gravSSD / SG.gravel + (waterCorrected + creditS + creditG + spL) / 1000) / (1 - AIR);
 
   const bS = bucketKg('sand'), bG = bucketKg('gravel');
   return {
@@ -241,9 +242,8 @@ function render() {
 function viewBatch() {
   const s = snapshot();
   const g = s.g;
-  const overCap = s.vol > (+S.mixerL || 0) * 0.6;
   const noCal = !s.bS || !s.bG;
-  const pct = S.mixerL ? Math.round(s.vol / S.mixerL * 100) : 0;
+  const pct = S.mixerL ? Math.round(s.vol * 1000 / S.mixerL * 100) : 0;
   const wc = g.wc;
   const est = strengthMPa(wc);
 
@@ -331,7 +331,7 @@ function syncBatch() {
   if (rowCredit) rowCredit.style.display = (s.creditS + s.creditG) > 0.05 ? '' : 'none';
   set('o-sp', nf(s.spL * 1000, 0));
   set('o-vol', nf(s.vol, 3));
-  const pct = S.mixerL ? Math.round(s.vol / S.mixerL * 100) : 0;
+  const pct = S.mixerL ? Math.round(s.vol * 1000 / S.mixerL * 100) : 0;
   set('o-volpct', `${pct}% ${LANG === 'id' ? 'dari molen' : 'of mixer'}`);
   const row = document.getElementById('row-sp'); if (row) row.style.display = s.spL > 0 ? '' : 'none';
 
