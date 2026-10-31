@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.8.2';
+const VERSION = '1.8.3';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
