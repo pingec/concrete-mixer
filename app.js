@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -349,6 +349,7 @@ function viewBatch() {
   let html = `
   <div class="card">
     <h2>${t('Recipe')}</h2>
+    <div class="rsum" id="o-sum"></div>
     <label class="field"><span class="lbl">${t('Grade')}</span>
       <select data-bind="gradeId" data-rerender="1">${gradeOpts}</select>
     </label>
@@ -411,6 +412,26 @@ function viewBatch() {
 function syncBatch() {
   const s = snapshot();
   const set = (id, v) => { const el = document.getElementById(id); if (el) el.textContent = v; };
+
+  /* One-line recipe summary at the top: everything a worker needs to sanity-check
+     the batch, deliberately quiet so it does not compete with the numbers below. */
+  const sumEl = document.getElementById('o-sum');
+  if (sumEl) {
+    const wcBatch = s.Cact > 0 ? (s.waterDesign / s.Cact) : s.g.wc;
+    const wcTxt = Math.abs(wcBatch - s.g.wc) < 0.005 ? nf(s.g.wc, 2) : `${nf(s.g.wc, 2)} → ${nf(wcBatch, 2)}`;
+    const tgt = effTarget(null), band = effBand(null);
+    const it = (k, v) => `<span class="it"><span class="l">${k}</span> <span class="v">${v}</span></span>`;
+    sumEl.innerHTML = [
+      it(t('Cement'), `${nf(s.Cact, 0)} kg`),
+      it(t('Sand'), `${nf(s.wetSand, 0)} kg`),
+      it(t('Gravel'), `${nf(s.wetGrav, 0)} kg`),
+      it(t('Water'), `${nf(s.waterCorrected, 0)} L`),
+      it('SP', s.spL > 0 ? `${nf(s.spL * 1000, 0)} mL` : '—'),
+      it(t('w/c'), wcTxt),
+      it(t('Slump'), `${nf(tgt, 0)}${band > 0 ? '±' + nf(band, 0) : ''} cm`)
+    ].join('');
+  }
+
   const bucketTxt = (n) => n == null ? '—' : (Math.floor(n) + '');
   const remTxt = (need, per) => {
     if (need == null || !per) return '—';
