@@ -674,7 +674,7 @@ function viewCost() {
     <table class="grid">
       <tr><th>${t('Recipe')}</th><th>${t('Cement')} kg</th><th>Rp/m³</th></tr>
       ${rows.map((r) => `<tr class="${r.win ? 'win' : ''}">
-        <td>${esc(r.g.name)}${(r.g.sp || 0) > 0 ? ' <span class="fine">+SP</span>' : ''}</td>
+        <td>${esc(r.g.name)}</td>
         <td>${nf(r.c.C, 0)}</td>
         <td class="big">${anyPrice() ? nf(r.c.cost, 0) : '—'}</td></tr>`).join('')}
     </table>
