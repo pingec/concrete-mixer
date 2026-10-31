@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.8.4';
+const VERSION = '1.8.5';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -61,7 +61,7 @@ const ID = {
   'Dose capped': 'Dosis dibatasi', 'Batch scatter σ': 'Sebaran batch σ',
   'target': 'target', 'Invalid backup': 'Cadangan tidak valid', 'OK': 'OK',
   'sand': 'pasir', 'gravel': 'kerikil',
-  'Pour / element': 'Coran / elemen', 'Tips': 'Panduan', 'Back': 'Kembali', 'Resume': 'Lanjutkan',
+  'Where it goes': 'Untuk bagian', 'Tips': 'Panduan', 'Back': 'Kembali', 'Resume': 'Lanjutkan',
   'Cast': 'Cetak', 'due now': 'sudah jatuh tempo', 'due in': 'jatuh tempo dalam', 'Pours': 'Coran',
   'Ungrouped': 'Tanpa coran',
   'Staging': 'Persiapan', 'Staged': 'Siap', 'Slump test': 'Uji slump',
@@ -358,8 +358,8 @@ const INFO = {
     'Berapa banyak air tambahan menaikkan slump 1 cm, per m³ beton. Awal 2,4 L/m³ per cm — sekitar 0,48 L per cm untuk campuran 0,2 m³. Aplikasi menyetel ulang otomatis dari setiap campuran yang selesai (±20% per campuran, jadi tidak bisa melenceng), sehingga tambahan berikutnya makin akurat untuk pasir, semen dan molen Anda.'],
   strength: ['A <b>K-grade is a characteristic strength</b>: 95% of cube results must be at or above it, so the batch <i>average</i> has to sit higher — typically by 1.64 σ, where σ is the scatter of cube results on your site. The app estimates the mean from w/c (Abrams curve, cement type PCC/OPC), then subtracts 1.64 σ to show the characteristic K-grade that mean implies. That is why a mix labelled K300 shows a mean around 37 MPa and a characteristic around K300 — same mix, two different statistics. Log real cube results and the app re-fits the curve to your cement instead of the generic one.',
     'Mutu <b>K adalah kuat tekan karakteristik</b>: 95% hasil kubus harus sama atau di atasnya, jadi <i>rata-rata</i> campuran harus lebih tinggi — biasanya 1,64 σ, dengan σ adalah sebaran hasil kubus di site Anda. Aplikasi memperkirakan rata-rata dari w/c (kurva Abrams, jenis semen PCC/OPC), lalu mengurangi 1,64 σ untuk menunjukkan mutu K karakteristik yang dihasilkan. Karena itu campuran berlabel K300 tampil dengan rata-rata sekitar 37 MPa dan karakteristik sekitar K300 — campuran sama, dua statistik berbeda. Catat hasil kubus nyata dan aplikasi akan menyetel kurva ke semen Anda, bukan kurva umum.'],
-  pour: ['A label for the pour this batch belongs to — an element, a pile group, a date. It is only a label: it changes no calculation. It exists so the diary reads as pours instead of loose batches, so the cube results can be traced back to the element they came from, and so you can see cement and volume per pour. Set it once before the first batch of a pour; every batch you start after that inherits it. Leave it blank for ungrouped work.',
-    'Label untuk coran tempat campuran ini termasuk — elemen, kelompok tiang, atau tanggal. Ini hanya label: tidak mengubah perhitungan apa pun. Fungsinya agar catatan terbaca sebagai coran, bukan campuran lepas; agar hasil kubus bisa dilacak ke elemen asalnya; dan agar terlihat semen serta volume per coran. Isi sekali sebelum campuran pertama sebuah coran; campuran berikutnya mewarisi label itu. Kosongkan untuk pekerjaan tanpa kelompok.']
+  pour: ['Where this batch of concrete goes in the build — a pile group, a beam, a slab, or just a date. It is only a label: nothing is calculated from it. It groups the diary by what is being built, lets cube results be traced back to it, and every batch you start afterwards inherits it.',
+    'Ke bagian mana beton ini dituang — kelompok tiang, balok, plat, atau sekadar tanggal. Ini hanya label: tidak ada perhitungan darinya. Catatan dikelompokkan menurut bagian yang dicor, hasil kubus bisa dilacak ke bagian itu, dan campuran berikutnya mewarisi label ini.']
 };
 const infoBtn = (k) => `<button class="info" data-info="${k}" aria-label="?">?</button>`;
 const infoNote = (k) => `<div class="note info" id="info-${k}" style="display:none">${INFO[k][LANG === 'id' ? 1 : 0]}</div>`;
@@ -424,7 +424,7 @@ function viewBatch() {
       <label class="field"><span class="lbl">${t('Sacks per batch')}</span>
         <input type="number" inputmode="decimal" step="0.5" min="0.5" data-bind="sacks" data-num="1" value="${S.sacks}"></label>
     </div>
-    <label class="field"><span class="lbl">${t('Pour / element')} ${infoBtn('pour')}</span>
+    <label class="field"><span class="lbl">${t('Where it goes')} ${infoBtn('pour')}</span>
       <input type="text" data-bind="pourTag" value="${esc(S.pourTag || '')}" placeholder="${LANG === 'id' ? 'mis. Tiang P1–P4' : 'e.g. Pile P1–P4'}">
       <span class="hint">${LANG === 'id' ? 'label saja — dipakai semua campuran berikutnya' : 'label only — carried by every batch you start after this'}</span></label>
     ${infoNote('pour')}
@@ -681,7 +681,7 @@ function viewDiary() {
   const ungrouped = S.log.filter((e) => !String(e.pour || '').trim()).length;
   return `
   <div class="card">
-    <h2>${t('Diary')} <span class="sub">${S.log.length} ${t('Batches').toLowerCase()}</span></h2>
+    <h2>${t('Diary')} <span class="sub">${S.log.length} ${t(S.log.length === 1 ? 'Batch' : 'Batches').toLowerCase()}</span></h2>
     <div class="row">
       <button class="small" data-action="csv">${t('Export CSV')}</button>
       <button class="small" data-action="backup">${t('Export backup')}</button>
@@ -693,7 +693,7 @@ function viewDiary() {
   </div>
   ${isEmpty ? `<div class="card center fine">${t('No batches logged yet.')}</div>` : ''}
   ${groups.length ? `<div class="card">
-    <h2>${t('Pours')} <span class="sub">${groups.length}</span></h2>
+    <h2>${t('Where it goes')} <span class="sub">${groups.length}</span></h2>
     ${groups.map((g) => `<div class="item" style="margin-bottom:8px">
       <div class="t">${esc(g.k)}</div>
       <div class="m">${g.n} ${g.n === 1 ? t('Batch') : t('Batches').toLowerCase()} · ${nf(g.vol, 2)} m³ · ${nf(g.C, 0)} kg ${t('Cement').toLowerCase()} · ${LANG === 'id' ? 'slump rata-rata' : 'avg slump'} ${g.slumps.length ? nf(g.slumps.reduce((a, b) => a + b, 0) / g.slumps.length, 1) : '—'} cm</div>
