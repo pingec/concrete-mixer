@@ -81,10 +81,10 @@ function setPath(obj, path, val) {
 
 /* --------------------------------------------------------------- state --- */
 const DEFAULT_GRADES = () => ([
-  { id: 'g300s', key: 'K300', name: 'K300 — site mix',        source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.500,  sp: 0 },
-  { id: 'g250s', key: 'K250', name: 'K250 — site mix',        source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.550,  sp: 0 },
-  { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48 },
-  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 }
+  { id: 'g300s', key: 'K300', name: 'K300 — site mix (No SP)',       source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.500,  sp: 0 },
+  { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.550,  sp: 0 },
+  { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48 },
+  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 }
 ]);
 
 const DEFAULTS = () => ({
@@ -124,9 +124,12 @@ function load() {
     S.prices = Object.assign(DEFAULTS().prices, d.prices || {});
     if (!Array.isArray(S.grades) || !S.grades.length) S.grades = DEFAULT_GRADES();
     if (!Array.isArray(S.log)) S.log = [];
-    // migration: the readymix preset is Jayamix (SCG Readymix Indonesia)
+    // migration: the readymix preset is Jayamix (SCG Readymix Indonesia); label the SP split
     S.grades.forEach((g) => {
-      if (g && typeof g.name === 'string') g.name = g.name.replace(/readymix design/i, 'Jayamix design');
+      if (!g || typeof g.name !== 'string') return;
+      g.name = g.name.replace(/readymix design/i, 'Jayamix design').trim();
+      if (/Jayamix design/i.test(g.name) && !/\(With SP\)/i.test(g.name)) g.name += ' (With SP)';
+      if (/site mix/i.test(g.name) && !/\(No SP\)/i.test(g.name)) g.name += ' (No SP)';
     });
     // migration: SP used to be litres per kg of cement, now % of cement weight
     if (!d.spUnitV2) {
