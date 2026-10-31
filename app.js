@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.5.0';
+const VERSION = '1.6.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -364,6 +364,7 @@ const TABS = ['Batch', 'Slump', 'Diary', 'Grades', 'Calibration', 'Cost', 'Setti
 const ICONS = { Batch: '🧱', Slump: '📏', Diary: '📖', Grades: '📋', Calibration: '⚖️', Cost: '💰', Settings: '⚙️' };
 let screen = 'Batch';
 let stageOpen = false;   // staging checklist expanded after the first slump reading
+let verdict = null;      // full-screen reaction to the last Record slump press
 const openGrades = new Set();
 
 function renderTabs() {
@@ -383,7 +384,7 @@ function render() {
   $('#ver').textContent = 'v' + VERSION;
   renderTabs();
   const map = { Batch: viewBatch, Slump: viewSlump, Diary: viewDiary, Grades: viewGrades, Calibration: viewCalib, Cost: viewCost, Settings: viewSettings, Tips: viewTips };
-  $('#main').innerHTML = (map[screen] || viewBatch)();
+  $('#main').innerHTML = (map[screen] || viewBatch)() + (verdict ? overlayHTML(verdict) : '');
   if (screen === 'Batch') syncBatch();
   window.scrollTo({ top: 0 });
 }
@@ -613,7 +614,7 @@ function viewSlump() {
   const stageBlock = L.slumps.length === 0
     ? `<div class="stage-h">${t('Staging')} <span class="fine">${doneN}/${steps.length}</span></div>
        <div class="stage">${steps.map(stageRow).join('')}</div>`
-    : `<button class="small wide" data-stage-toggle="1">${t('Staged')} ${doneN}/${steps.length} ✓ ${stageOpen ? '▾' : '▸'}</button>
+    : `<button class="small wide" data-stage-toggle="1">${t('Staged')} ${doneN}/${steps.length}${doneN === steps.length ? ' ✓' : ''} ${stageOpen ? '▾' : '▸'}</button>
        ${stageOpen ? `<div class="stage">${steps.map(stageRow).join('')}</div>` : ''}`;
 
   return `
@@ -1060,6 +1061,63 @@ function nextWater(L, slump) {
   return add < 0.1 ? 0 : add;
 }
 
+/* The verdict is the answer to "I just pressed Record" — shown full screen so it
+   cannot be missed at the drum. Same thresholds as the inline guidance. */
+function wetExcess(L, slump) {
+  const hi = effTarget(L) + effBand(L);
+  const overshoot = Math.max(0, slump - hi) * (+S.kPerM3PerCm || 2.4) * L.vol;
+  return Math.max(0, L.poured - L.ceilingNet, overshoot);
+}
+
+function makeVerdict(L, slump) {
+  const id = LANG === 'id';
+  const lo = effTarget(L) - effBand(L), hi = effTarget(L) + effBand(L);
+  const base = { slump, poured: L.poured };
+  if (slump > hi) {
+    const dC = wetExcess(L, slump) / L.wc;
+    return Object.assign(base, { kind: 'danger',
+      head: id ? 'TERLALU BASAH' : 'TOO WET',
+      num: `+${nf(dC, 1)} kg`, unit: id ? 'semen' : 'cement',
+      body: id
+        ? `Tambah semen + agregat proporsional: +${nf(dC, 1)} kg semen, +${nf(dC * L.g.sand, 1)} kg pasir, +${nf(dC * L.g.gravel, 1)} kg kerikil. Jangan tambah air.`
+        : `Add cement + aggregate proportionally: +${nf(dC, 1)} kg cement, +${nf(dC * L.g.sand, 1)} kg sand, +${nf(dC * L.g.gravel, 1)} kg gravel. No more water.` });
+  }
+  if (slump >= lo) {
+    return Object.assign(base, { kind: 'ok',
+      head: id ? 'SIAP' : 'READY',
+      num: `${nf(slump, 1)} cm`, unit: 'slump',
+      body: id ? `Slump dalam target ${effTarget(L)} ± ${effBand(L)} cm. Selesaikan campuran ini.` : `Slump is inside the band ${effTarget(L)} ± ${effBand(L)} cm. Finish this batch.`,
+      finish: true });
+  }
+  if (L.nextAdd < 0.1) {
+    return Object.assign(base, { kind: 'danger',
+      head: id ? 'BATAS AIR TERCAPAI' : 'WATER LIMIT REACHED',
+      num: id ? 'jangan tambah air' : 'no more water', unit: '',
+      body: id ? `Slump ${nf(slump, 1)} cm masih di bawah ${lo} cm. Pakai plastisizer sesuai dosis, atau tambah semen + agregat proporsional.`
+        : `Slump ${nf(slump, 1)} cm is still under ${lo} cm. Use plasticizer at the label dose, or add cement + aggregate proportionally.` });
+  }
+  return Object.assign(base, { kind: 'warn',
+    head: id ? 'TAMBAH AIR' : 'ADD WATER',
+    num: `${nf(L.nextAdd, 1)} L`, unit: id ? 'sekarang' : 'now',
+    body: id ? `Aduk 1–2 menit, lalu ukur lagi. Sisa air ${nf(Math.max(0, L.ceilingNet - L.poured - L.nextAdd), 1)} L.`
+      : `Mix 1–2 minutes, then measure again. ${nf(Math.max(0, L.ceilingNet - L.poured - L.nextAdd), 1)} L of water left.` });
+}
+
+function overlayHTML(v) {
+  const id = LANG === 'id';
+  return `<div class="vwrap" role="alertdialog" aria-live="assertive">
+    <div class="vcard v-${v.kind}">
+      <div class="vhead">${v.head}</div>
+      ${v.num ? `<div class="vnum">${v.num}</div>` : ''}
+      ${v.unit ? `<div class="vunit">${v.unit}</div>` : ''}
+      <div class="vbody">${v.body}</div>
+      ${v.finish ? `<button class="vbtn primary" data-action="vfinish">${id ? 'SELESAI' : 'FINISH BATCH'}</button>` : ''}
+      <button class="vbtn ghost2" data-action="vclose">${v.finish ? (id ? 'LANJUT ADUK' : 'KEEP MIXING') : (id ? 'MENGERTI' : 'GOT IT')}</button>
+      <div class="vfine">${id ? 'air di drum' : 'water in drum'} <b>${nf(v.poured, 1)} L</b> · ${id ? 'batas' : 'ceiling'} <b>${nf(S.live ? S.live.ceilingNet : 0, 1)} L</b></div>
+    </div>
+  </div>`;
+}
+
 function recordSlump() {
   const L = S.live; if (!L) return;
   const v = parseFloat($('#slumpIn').value);
@@ -1068,13 +1126,19 @@ function recordSlump() {
   /* Pressing Record twice with the same number is a re-read, not a new test:
      no water is credited and no duplicate reading is stored. */
   if (last != null && Math.abs(last - v) < 1e-9) {
-    toast(LANG === 'id' ? 'Slump sama — tidak ada air ditambahkan' : 'Same slump — no water added');
-    L.nextAdd = nextWater(L, v); save(); render(); return;
+    L.nextAdd = nextWater(L, v);
+    verdict = { kind: 'warn', head: LANG === 'id' ? 'SLUMP SAMA' : 'SAME READING',
+      num: v + ' cm', unit: '',
+      body: LANG === 'id' ? 'Belum berubah sejak uji terakhir — tidak ada air yang ditambahkan. Aduk lebih lama, lalu ukur lagi.'
+        : 'Unchanged since the last test, so no water was credited. Mix longer, then measure again.',
+      poured: L.poured };
+    save(); render(); return;
   }
   L.poured += L.nextAdd || 0;
   if (L.nextAdd) { L.adds.push({ L: L.nextAdd, slump: v }); }
   L.slumps.push({ v, t: Date.now() });
   L.nextAdd = nextWater(L, v);
+  verdict = makeVerdict(L, v);
   save(); render();
 }
 
@@ -1204,7 +1268,9 @@ document.addEventListener('click', (ev) => {
   if (act === 'start') return startBatch();
   if (act === 'slump-rec') return recordSlump();
   if (act === 'slump-finish') return finishBatch();
-  if (act === 'slump-cancel') { S.live = null; save(); screen = 'Batch'; return render(); }
+  if (act === 'vclose') { verdict = null; return render(); }
+  if (act === 'vfinish') { verdict = null; return finishBatch(); }
+  if (act === 'slump-cancel') { verdict = null; S.live = null; save(); screen = 'Batch'; return render(); }
   if (act === 'slump-note') {
     const n = prompt(t('Notes'), (S.live && S.live.notes) || '');
     if (n != null && S.live) { S.live.notes = n; save(); }
