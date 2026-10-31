@@ -381,7 +381,7 @@ function viewBatch() {
     ${infoNote('wpour')}
     <div class="stat" id="row-credit" style="display:none"><span class="k">${t('Water in aggregate')}</span><span class="v"><span id="o-credit">—</span><span class="unit">L</span></span></div>
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
-    <div class="fine" id="o-ceilNote" style="margin-top:-4px"></div>
+    <div class="fine" id="o-ceilNote" style="margin:6px 2px 0"></div>
     ${infoNote('ceil')}
     <div class="stat" id="row-sp" style="display:none"><span class="k">${t('Plasticizer')} ${infoBtn('sp')}</span><span class="v"><span id="o-sp">—</span><span class="unit">mL</span> <span class="fine" id="o-spPct"></span></span></div>
     ${infoNote('sp')}
