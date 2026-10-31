@@ -1,7 +1,7 @@
 /* Concrete Mixer — offline cache.
    Network-first for same-origin files so a deploy is picked up on the next load,
    with the cached copy as the offline fallback. */
-const CACHE = 'concrete-mix-v1.8.3';
+const CACHE = 'concrete-mix-v1.8.4';
 const ASSETS = ['./', './index.html', './app.js', './style.css', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {

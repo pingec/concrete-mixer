@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.8.3';
+const VERSION = '1.8.4';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -446,8 +446,6 @@ function viewBatch() {
     ${infoNote('buckets')}
     <div class="stat" style="margin-top:12px"><span class="k">${t('Start water')} (${S.startWaterPct}%) ${infoBtn('start')}</span><span class="v"><span id="o-startW">—</span><span class="unit">L</span></span></div>
     ${infoNote('start')}
-    <div class="stat"><span class="k">${t('Water to pour')} ${infoBtn('wpour')}</span><span class="v"><span id="o-totalW">—</span><span class="unit">L</span></span></div>
-    ${infoNote('wpour')}
     <div class="stat" id="row-credit" style="display:none"><span class="k">${t('Water in aggregate')}</span><span class="v"><span id="o-credit">—</span><span class="unit">L</span></span></div>
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
     <div class="fine" id="o-ceilNote" style="margin:6px 2px 0"></div>
@@ -505,11 +503,10 @@ function syncBatch() {
   set('o-gravKg', `${nf(s.wetGrav, 1)} kg`);
   set('o-cement', nf(s.Cact, 1));
   set('o-startW', nf(s.startWater, 1));
-  set('o-totalW', nf(s.waterCorrected, 1));
   set('o-ceilW', nf(s.ceilingNet, 1));
   const margin = s.ceilingNet - s.waterCorrected;
   set('o-ceilNote', Math.abs(margin) < 0.05
-    ? (LANG === 'id' ? 'sama dengan air untuk dituang — tanpa cadangan semen' : 'same as water to pour — no cement buffer set')
+    ? (LANG === 'id' ? 'tanpa cadangan semen — ini juga jumlah air yang dituang' : 'no cement buffer — this is also the water you pour')
     : (LANG === 'id' ? `cadangan semen ${nf(margin, 1)} L` : `cement buffer margin ${nf(margin, 1)} L`));
   set('o-credit', nf(s.creditS + s.creditG, 1));
   const rowCredit = document.getElementById('row-credit');
