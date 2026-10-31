@@ -252,6 +252,11 @@ table.grid tr.win td{background:var(--ok-bg);font-weight:700}
 .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:14px}
 .sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
 details summary{cursor:pointer;font-weight:700;font-size:15px;color:var(--muted);padding:4px 0}
+/* grade rows: name on its own line, numbers underneath — never squeeze the name */
+details[data-gid] > summary{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:2px 0}
+details[data-gid] > summary::-webkit-details-marker{display:none}
+details[data-gid] .gname{font-size:16px;font-weight:750;color:var(--ink);line-height:1.25;text-align:left}
+details[data-gid] .gsub{font-size:13px;font-weight:400;color:var(--muted);line-height:1.3;text-align:left}
 hr.sep{border:none;border-top:1px solid var(--line);margin:12px 0}
 .fine{font-size:13px;color:var(--muted)}
 .center{text-align:center}

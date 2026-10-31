@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.8.1';
+const VERSION = '1.8.2';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -746,9 +746,9 @@ function viewGrades() {
     ${S.grades.map((g) => {
       const c = perM3(g), f = strengthMPa(g.wc);
       return `<details class="item" data-gid="${g.id}" ${openGrades.has(g.id) ? 'open' : ''} style="margin-bottom:10px">
-        <summary style="display:flex;justify-content:space-between;gap:8px;align-items:baseline;padding:2px 0">
-          <span style="font-size:16px;color:var(--ink)">${esc(g.name)}</span>
-          <span class="fine" style="white-space:nowrap">${nf(c.C, 0)} kg/m³ · ${strengthLabel(f, g.source)}</span>
+        <summary class="gsum">
+          <span class="gname">${esc(g.name)}</span>
+          <span class="gsub">${nf(c.C, 0)} kg/m³ · ${strengthLabel(f, g.source)}</span>
         </summary>
         <div style="margin-top:10px">
           <label class="field" style="margin:0 0 8px"><span class="lbl">${t('Recipe name')}</span>
