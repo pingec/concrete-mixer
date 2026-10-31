@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.7.0';
+const VERSION = '1.8.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -64,7 +64,8 @@ const ID = {
   'Pour / element': 'Coran / elemen', 'Tips': 'Panduan', 'Back': 'Kembali', 'Resume': 'Lanjutkan',
   'Cast': 'Cetak', 'due now': 'sudah jatuh tempo', 'due in': 'jatuh tempo dalam', 'Pours': 'Coran',
   'Ungrouped': 'Tanpa coran',
-  'Staging': 'Persiapan', 'Staged': 'Siap', 'Slump test': 'Uji slump'
+  'Staging': 'Persiapan', 'Staged': 'Siap', 'Slump test': 'Uji slump',
+  'Buffer': 'Cadangan'
 };
 
 let LANG = 'en';
@@ -313,6 +314,10 @@ const cubeDueCount = () => S.log.reduce((n, e) => {
   return n + (c.due7 ? 1 : 0) + (c.due28 ? 1 : 0);
 }, 0);
 const fmtDate = (ts) => new Date(ts).toLocaleDateString(LANG === 'id' ? 'id-ID' : 'en-GB', { day: 'numeric', month: 'short' });
+const fmtShort = (ts) => {
+  const d = new Date(ts), md = `${d.getDate()}/${d.getMonth() + 1}`;
+  return d.getFullYear() === new Date().getFullYear() ? md : `${md}/${String(d.getFullYear()).slice(2)}`;
+};
 
 /* ----------------------------------------------------------------- cost --- */
 function perM3(g) {
@@ -366,6 +371,7 @@ let screen = 'Batch';
 let stageOpen = false;   // staging checklist expanded after the first slump reading
 let verdict = null;      // full-screen reaction to the last Record slump press
 const openGrades = new Set();
+const openEntries = new Set();   // diary rows the user expanded
 
 function renderTabs() {
   const SHORT = { Calibration: 'Calib' };
@@ -702,21 +708,33 @@ function viewDiary() {
   ${rows.map((e) => {
     const cs = cubeState(e);
     const due = (n, d) => `${fmtDate(d)}${n ? ` <b style="color:var(--danger)">${t('due now')}</b>` : ''}`;
+    const tgt = +(e.targetSlump || S.targetSlump) || 10, band = +S.band || 2;
+    const sl = e.finalSlump;
+    const pillCls = sl == null ? '' : (sl > tgt + band ? 'danger' : sl < tgt - band ? 'warn' : 'ok');
+    const dueN = (cs.due7 ? 1 : 0) + (cs.due28 ? 1 : 0);
     return `
-    <div class="item">
-      <div class="t">${esc(e.gradeName)} · ${nf(e.Cact, 0)} kg ${t('Cement').toLowerCase()}</div>
-      ${e.pour ? `<div class="m">🔖 <b>${esc(e.pour)}</b></div>` : ''}
-      <div class="m">${new Date(e.ts).toLocaleString()} · ${nf(e.waterUsed, 1)} L ${t('Water').toLowerCase()} (${nf(e.wcActual, 3)} w/c) · slump ${e.finalSlump ?? '—'} cm · ${nf(e.vol, 3)} m³${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}${e.spExtra > 0 ? ' · SP +' + nf(e.spExtra, 0) + ' mL' : ''}</div>
-      <div class="m">${t('Sand')} ${nf(e.wetSand, 1)} kg${e.bucketSand ? ' (' + e.bucketSand + ' ' + t('buckets') + ')' : ''} · ${t('Gravel')} ${nf(e.wetGrav, 1)} kg${e.bucketGrav ? ' (' + e.bucketGrav + ' ' + t('buckets') + ')' : ''}${e.mS != null ? ' · ' + t('Moisture').toLowerCase() + ' ' + (e.mS * 100).toFixed(1) + '%' : ''}</div>
-      <div class="m">${strengthLabel(e.strengthEst, e.source)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
-      ${e.notes ? `<div class="m">📝 ${esc(e.notes)}</div>` : ''}
-      <div class="row" style="margin-top:8px">
-        <label class="field" style="margin:0"><span class="lbl">${t('7 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d7 ?? ''}" data-cube="d7" data-id="${e.id}"></label>
-        <label class="field" style="margin:0"><span class="lbl">${t('28 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d28 ?? ''}" data-cube="d28" data-id="${e.id}"></label>
+    <details class="item entry" data-entry="${e.id}" ${openEntries.has(e.id) ? 'open' : ''}>
+      <summary>
+        <div class="row1">
+          <span class="t">${esc(e.gradeName)}</span>
+          <span class="pill ${pillCls}">${sl == null ? '—' : nf(sl, 1)} cm</span>
+        </div>
+        <div class="m">${nf(e.Cact, 0)} kg · ${nf(e.waterUsed, 1)} L · w/c ${nf(e.wcActual, 3)} · ${fmtShort(e.ts)} ${new Date(e.ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+        ${(e.pour || e.spExtra > 0 || dueN) ? `<div class="m">${e.pour ? '🔖 ' + esc(e.pour) : ''}${e.spExtra > 0 ? (e.pour ? ' · ' : '') + 'SP +' + nf(e.spExtra, 0) + ' mL' : ''}${dueN ? `${(e.pour || e.spExtra > 0) ? ' · ' : ''}<b style="color:var(--danger)">${dueN} ${LANG === 'id' ? 'uji kubus' : (dueN === 1 ? 'cube test' : 'cube tests')} ${t('due now')}</b>` : ''}</div>` : ''}
+        ${e.notes ? `<div class="m">📝 ${esc(e.notes)}</div>` : ''}
+      </summary>
+      <div class="ebody">
+        <div class="m">${new Date(e.ts).toLocaleString()}${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}</div>
+        <div class="m">${t('Sand')} ${nf(e.wetSand, 1)} kg${e.bucketSand ? ' (' + e.bucketSand + ' ' + t('buckets') + ')' : ''} · ${t('Gravel')} ${nf(e.wetGrav, 1)} kg${e.bucketGrav ? ' (' + e.bucketGrav + ' ' + t('buckets') + ')' : ''}${e.mS != null ? ' · ' + t('Moisture').toLowerCase() + ' ' + (e.mS * 100).toFixed(1) + '%' : ''}</div>
+        <div class="m">${strengthLabel(e.strengthEst, e.source)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
+        <div class="row" style="margin-top:8px">
+          <label class="field" style="margin:0"><span class="lbl">${t('7 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d7 ?? ''}" data-cube="d7" data-id="${e.id}"></label>
+          <label class="field" style="margin:0"><span class="lbl">${t('28 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d28 ?? ''}" data-cube="d28" data-id="${e.id}"></label>
+        </div>
+        <div class="fine" style="margin-top:6px">${t('Cast')} ${fmtDate(e.ts)} · ${t('7 days')} ${due(cs.due7, cs.d7)} · ${t('28 days')} ${due(cs.due28, cs.d28)}</div>
+        <div class="acts"><button class="xs" data-action="del" data-id="${e.id}">${t('Delete')}</button></div>
       </div>
-      <div class="fine" style="margin-top:6px">${t('Cast')} ${fmtDate(e.ts)} · ${t('7 days')} ${due(cs.due7, cs.d7)} · ${t('28 days')} ${due(cs.due28, cs.d28)}</div>
-      <div class="acts"><button class="xs" data-action="del" data-id="${e.id}">${t('Delete')}</button></div>
-    </div>`;
+    </details>`;
   }).join('')}
   </div>`;
 }
@@ -984,11 +1002,21 @@ function viewSettings() {
         <option value="OPC" ${S.cementType === 'OPC' ? 'selected' : ''}>OPC — ordinary portland</option>
       </select>
       <span class="hint">${LANG === 'id' ? 'PCC lebih lambat, kuat 28 hari ~8% lebih rendah pada w/c sama. Bekisting dilepas lebih lama.' : 'PCC is slower and ~8% lower at 28 days for the same w/c. Keep formwork on longer.'}</span></label>
+    <div class="row" style="align-items:flex-end">
+      <label class="field" style="margin:0"><span class="lbl">${t('Mixer capacity')} (L)</span>
+        <input type="number" inputmode="numeric" step="10" min="60" data-bind="mixerL" data-num="1" value="${S.mixerL}">
+        <span class="hint">350–400 L ${LANG === 'id' ? 'umum di Bali' : 'typical in Bali'}</span></label>
+      <label class="field" style="margin:0"><span class="lbl">${t('Buffer')} (%) ${infoBtn('buffer')}</span>
+        <input type="number" inputmode="decimal" step="1" min="0" max="30" data-bind="bufferPct" data-num="1" value="${S.bufferPct}">
+        <span class="hint">0 = ${LANG === 'id' ? 'tanpa cadangan' : 'no margin'}</span></label>
+    </div>
+    ${infoNote('buffer')}
+    <hr class="sep">
     <div class="row">
       <label class="field"><span class="lbl">${t('Target slump')} (cm)</span><input type="number" step="1" data-bind="targetSlump" data-num="1" value="${S.targetSlump}"></label>
       <label class="field"><span class="lbl">${t('Slump band')} (±cm)</span><input type="number" step="0.5" data-bind="band" data-num="1" value="${S.band}"></label>
     </div>
-    <div class="row">
+    <div class="row" style="align-items:flex-end">
       <label class="field"><span class="lbl">${t('Start water %')}</span><input type="number" step="5" data-bind="startWaterPct" data-num="1" value="${S.startWaterPct}"></label>
       <label class="field"><span class="lbl">${t('Water per cm, per m3')} ${infoBtn('k')}</span><input type="number" step="0.1" min="0.2" data-bind="kPerM3PerCm" data-num="1" value="${S.kPerM3PerCm}"><span class="hint">L/m³ ${LANG === 'id' ? 'per cm' : 'per cm'}</span></label>
     </div>
@@ -1007,22 +1035,6 @@ function viewSettings() {
       <span class="hint">MPa · ${LANG === 'id' ? 'sebaran hasil kubus di site ini' : 'spread of cube results on this site'}</span></label>
     ${infoNote('strength')}
     <div class="note info">${S.cementType} · ${t('Strength estimate')}: ${strengthLabel(strengthMPa(grade().wc), grade().source)} @ w/c ${grade().wc.toFixed(3)}${A ? `<br>${LANG === 'id' ? 'Dari kubus Anda' : 'From your cubes'}: A ≈ ${nf(A, 0)} (${LANG === 'id' ? 'model default' : 'default model'} ${STRENGTH.A[S.cementType]})` : ''}</div>
-  </div>
-
-  <div class="card">
-    <h2>${LANG === 'id' ? 'Molen & cadangan' : 'Mixer & margin'}</h2>
-    <div class="row" style="align-items:flex-end">
-      <label class="field" style="margin:0"><span class="lbl">${t('Mixer capacity')} (L)</span>
-        <input type="number" inputmode="numeric" step="10" min="60" data-bind="mixerL" data-num="1" value="${S.mixerL}">
-        <span class="hint">350–400 L ${LANG === 'id' ? 'umum di Bali' : 'typical in Bali'}</span></label>
-      <label class="field" style="margin:0"><span class="lbl">${t('Cement buffer')} (%) ${infoBtn('buffer')}</span>
-        <input type="number" inputmode="decimal" step="1" min="0" max="30" data-bind="bufferPct" data-num="1" value="${S.bufferPct}">
-        <span class="hint">0 = ${LANG === 'id' ? 'tanpa cadangan' : 'no margin'}</span></label>
-    </div>
-    ${infoNote('buffer')}
-    <div class="fine" style="margin-top:8px">${LANG === 'id'
-      ? 'Berlaku untuk semua campuran: kapasitas molen menentukan peringatan kelebihan, cadangan semen menurunkan batas air.'
-      : 'Applies to every batch: capacity drives the over-capacity warning, the buffer lowers the water ceiling.'}</div>
   </div>
 
   <div class="card">
@@ -1416,14 +1428,16 @@ document.addEventListener('change', (ev) => {
     if (el.tagName === 'SELECT') render();
     else if (screen === 'Grades' || screen === 'Calibration' || screen === 'Cost' || screen === 'Settings') render();
     else if (screen === 'Batch') syncBatch();
+    else if (screen === 'Diary') render();
   }
 });
 
 /* --------------------------------------------------------------- boot ---- */
 document.addEventListener('toggle', (ev) => {
-  const d = ev.target.closest && ev.target.closest('details[data-gid]');
-  if (!d) return;
-  if (d.open) openGrades.add(d.dataset.gid); else openGrades.delete(d.dataset.gid);
+  const g = ev.target.closest && ev.target.closest('details[data-gid]');
+  if (g) { if (g.open) openGrades.add(g.dataset.gid); else openGrades.delete(g.dataset.gid); }
+  const en = ev.target.closest && ev.target.closest('details[data-entry]');
+  if (en) { if (en.open) openEntries.add(en.dataset.entry); else openEntries.delete(en.dataset.entry); }
 }, true);
 
 $('#btnLang').addEventListener('click', () => {

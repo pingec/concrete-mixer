@@ -213,6 +213,21 @@ button.info.on{border-color:var(--accent);color:var(--accent);background:#eaf4f2
 .item .m{font-size:13px;color:var(--muted);margin-top:3px}
 .item .acts{display:flex;gap:8px;margin-top:9px;flex-wrap:wrap}
 
+/* diary entry — compact row, tap to open the full record */
+details.entry{padding:9px 12px}
+details.entry > summary{list-style:none;cursor:pointer;display:block}
+details.entry > summary::-webkit-details-marker{display:none}
+details.entry .row1{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+details.entry .t{font-size:15px}
+details.entry .pill{
+  font-size:12px;font-weight:800;padding:2px 9px;border-radius:999px;
+  background:#eef1f4;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;
+}
+details.entry .pill.ok{background:var(--ok-bg);color:var(--ok)}
+details.entry .pill.warn{background:var(--warn-bg);color:var(--warn)}
+details.entry .pill.danger{background:var(--danger-bg);color:var(--danger)}
+details.entry .ebody{border-top:1px dashed var(--line);margin-top:9px;padding-top:8px}
+
 table.grid{width:100%;border-collapse:collapse;font-size:14px}
 table.grid th,table.grid td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;font-variant-numeric:tabular-nums}
 table.grid th:first-child,table.grid td:first-child{text-align:left}
