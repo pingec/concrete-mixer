@@ -84,7 +84,8 @@ const DEFAULT_GRADES = () => ([
   { id: 'g300s', key: 'K300', name: 'K300 — site mix (No SP)',       source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.490,  sp: 0 },
   { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.540,  sp: 0 },
   { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48 },
-  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 }
+  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 },
+  { id: 'gpile', key: 'Pile', name: 'Bore Pile Mix (w/c 0.45, slump 16±2)', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, tslump: 16 }
 ]);
 
 const DEFAULTS = () => ({
@@ -165,6 +166,11 @@ const grade = () => S.grades.find((g) => g.id === S.gradeId) || S.grades[0];
 const spDensity = () => +S.spDensity || 1.06;
 const spPctOf = (g) => Math.max(0, Math.min(+g.sp || 0, +S.spMaxPct || 0));
 const spCapped = (g) => (+g.sp || 0) > (+S.spMaxPct || 0) + 1e-9;
+
+/* A grade may carry its own slump target (e.g. a flowable pile mix); otherwise
+   the global default from Settings applies. A running batch freezes its target. */
+const effTarget = (L) => +(((L && L.target) || (L ? 0 : (grade().tslump || 0)) || S.targetSlump) || 10);
+const effBand = (L) => +(((L && L.band) || S.band) || 2);
 
 function bucketKg(kind) {
   const arr = S.cal[kind + 'Weigh'] || [];
@@ -453,7 +459,7 @@ function viewSlump() {
   }
   const L = S.live;
   const last = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
-  const lo = (+S.targetSlump) - (+S.band), hi = (+S.targetSlump) + (+S.band);
+  const lo = effTarget(L) - effBand(L), hi = effTarget(L) + effBand(L);
   const inBand = last != null && last >= lo && last <= hi;
   const overWet = last != null && last > hi;
 
@@ -477,7 +483,10 @@ function viewSlump() {
         : 'Slump is still below ' + lo + ' cm. Use plasticizer at the label dose, or add cement + aggregate proportionally. No more water.'}</div>`;
     } else {
       guidance = `<div class="note warn"><b>${t('Add water')}: ${nf(add, 1)} L</b> — ${LANG === 'id' ? 'aduk 1–2 menit, ukur lagi.' : 'mix 1–2 minutes, then measure again.'}
-        <br><span class="fine">k = ${nf(kL, 2)} L/cm ${LANG === 'id' ? 'untuk campuran ini' : 'for this batch'} · ${t('Remaining')} ${nf(Math.max(0, L.ceilingNet - L.poured - add), 1)} L</span></div>`;
+        <br><span class="fine">k = ${nf(kL, 2)} L/cm ${LANG === 'id' ? 'untuk campuran ini' : 'for this batch'} · ${t('Remaining')} ${nf(Math.max(0, L.ceilingNet - L.poured - add), 1)} L</span>
+        ${L.spL > 0 ? `<br><span class="fine">${LANG === 'id'
+          ? `Atau tambah plastisizer +0,1% (≈${nf(0.001 * L.Cact / spDensity() * 1000, 0)} mL) — untuk campuran ini itu lebih tepat daripada air.`
+          : `Or add plasticizer +0.1% (≈${nf(0.001 * L.Cact / spDensity() * 1000, 0)} mL) — for this mix that beats more water.`}</span>` : ''}</div>`;
     }
   }
 
@@ -489,7 +498,7 @@ function viewSlump() {
 
   return `
   <div class="card">
-    <h2>${esc(L.gradeName)} · ${nf(L.Cact, 0)} kg ${t('Cement').toLowerCase()}</h2>
+    <h2>${esc(L.gradeName)} · ${nf(L.Cact, 0)} kg ${t('Cement').toLowerCase()} <span class="sub">${t('target')} ${effTarget(L)} ± ${effBand(L)} cm</span></h2>
     <div class="stat hero" style="border-bottom:none;padding-top:0"><span class="k">${t('Pour now')}</span><span class="v"><span>${nf(L.nextAdd || 0, 1)}</span><span class="unit">L</span></span></div>
     <div style="margin-top:2px">${guidance}</div>
     <div class="stat" style="margin-top:10px"><span class="k">${t('Water')} ${LANG === 'id' ? 'di drum' : 'in drum'}</span><span class="v sm">${nf(L.poured, 1)} L</span></div>
@@ -572,7 +581,12 @@ function viewGrades() {
                 <option value="site" ${g.source === 'site' ? 'selected' : ''}>${t('Site mix')}</option>
                 <option value="rmx" ${g.source === 'rmx' ? 'selected' : ''}>${t('Jayamix design')}</option>
               </select></label>
-            <div style="display:flex;align-items:flex-end"><button class="xs wide" style="color:var(--danger)" data-action="grade-del" data-id="${g.id}">${t('Delete')}</button></div>
+            <label class="field" style="margin:0"><span class="lbl">${t('Target slump')}</span>
+              <input type="number" step="0.5" min="0" placeholder="${S.targetSlump}" value="${g.tslump || ''}" data-grade="${g.id}" data-gf="tslump" data-num="1">
+              <span class="hint">${LANG === 'id' ? 'kosong = setelan' : 'blank = default'}</span></label>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px">
+            <button class="xs" data-action="grade-del" data-id="${g.id}">${t('Delete')}</button>
           </div>
           <div class="fine" style="margin-top:8px">${t('Cement content')} ≈ ${nf(c.C, 0)} kg/m³ · ${nf(f, 1)} MPa ${LANG === 'id' ? 'rata-rata' : 'mean'} · K${Math.round(gradeFit(f).kChar)} ${LANG === 'id' ? 'karakteristik' : 'characteristic'} (σ ${nf(sigmaMPa(), 1)} MPa)</div>
         </div>
@@ -816,14 +830,15 @@ function startBatch() {
     waterCorrected: s.waterCorrected, ceilingNet: s.ceilingNet, vol: s.vol, spL: s.spL,
     mS: s.mS, mG: s.mG, creditS: s.creditS, creditG: s.creditG,
     bucketSand: s.bucketSand, bucketGrav: s.bucketGrav, bS: s.bS, bG: s.bG,
-    poured: 0, nextAdd: s.startWater, adds: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0
+    poured: 0, nextAdd: s.startWater, adds: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0,
+    target: (+s.g.tslump > 0 ? +s.g.tslump : +S.targetSlump), band: +S.band
   };
   save(); screen = 'Slump'; render();
 }
 
 /* Single source of truth for "how much water next" — used by the view and the recorder. */
 function nextWater(L, slump) {
-  const target = +S.targetSlump, band = +S.band;
+  const target = effTarget(L), band = effBand(L);
   if (slump == null || slump >= target - band) return 0;
   const kL = (+S.kPerM3PerCm || 2.4) * L.vol;
   const cap = Math.min(2, Math.max(0.5, 0.08 * Math.max(1, L.waterCorrected)));
@@ -863,7 +878,7 @@ function finishBatch() {
     cementType: S.cementType, sack: L.sack, n: L.n, Cnom: L.Cnom, Cact: L.Cact, bufferPct: L.bufferPct,
     wetSand: L.wetSand, wetGrav: L.wetGrav, mS: L.mS, mG: L.mG, creditS: L.creditS, creditG: L.creditG,
     waterDesign: L.g.wc * L.Cnom, waterUsed: total, totalWater, wcActual, ceilingNet: L.ceilingNet,
-    finalSlump, adds: L.adds.slice(), slumps: L.slumps.slice(), spL: L.spL, vol: L.vol,
+    finalSlump, targetSlump: effTarget(L), adds: L.adds.slice(), slumps: L.slumps.slice(), spL: L.spL, vol: L.vol,
     bucketSand: L.bucketSand == null ? null : Math.floor(L.bucketSand),
     bucketGrav: L.bucketGrav == null ? null : Math.floor(L.bucketGrav),
     strengthEst: strengthMPa(wcActual), notes: L.notes || '', d7: null, d28: null,
