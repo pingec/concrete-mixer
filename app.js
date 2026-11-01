@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.8.5';
+const VERSION = '1.8.6';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -506,7 +506,7 @@ function syncBatch() {
   set('o-ceilW', nf(s.ceilingNet, 1));
   const margin = s.ceilingNet - s.waterCorrected;
   set('o-ceilNote', Math.abs(margin) < 0.05
-    ? (LANG === 'id' ? 'tanpa cadangan semen — ini juga jumlah air yang dituang' : 'no cement buffer — this is also the water you pour')
+    ? (LANG === 'id' ? 'tanpa cadangan semen' : 'no cement buffer set')
     : (LANG === 'id' ? `cadangan semen ${nf(margin, 1)} L` : `cement buffer margin ${nf(margin, 1)} L`));
   set('o-credit', nf(s.creditS + s.creditG, 1));
   const rowCredit = document.getElementById('row-credit');
