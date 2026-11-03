@@ -125,4 +125,10 @@ that first load every later visit gets the current build.
 ## Data
 
 Everything lives in `localStorage` under `concrete-mix-v1`. Export CSV (spreadsheet)
-or a JSON backup from the Diary tab. Import the JSON to restore or move phones.
+or a JSON backup from the Diary tab. Two ways back in, deliberately separate:
+
+- **Restore backup** replaces the whole state — use it for a new phone or to undo a mess.
+- **Add batches from file** merges: only `log` is read, batches already present are
+  skipped (matched on batch id, or timestamp + grade + volume for older files that carry
+  no ids), and recipes, calibration, prices, settings and a batch in progress are left
+  untouched. The result is confirmed full-screen, so "did mine survive?" takes one glance.

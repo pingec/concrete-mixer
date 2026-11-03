@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.8.6';
+const VERSION = '1.9.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -33,7 +33,11 @@ const ID = {
   'Plasticizer per litre': 'Plastisizer per liter', 'Water per m3': 'Air per m3',
   'Cost per m3': 'Biaya per m3', 'Cost per batch': 'Biaya per campuran',
   'Compare recipes': 'Bandingkan resep', 'Break-even SP price': 'Harga SP titik impas',
-  'Export CSV': 'Ekspor CSV', 'Export backup': 'Ekspor cadangan', 'Import backup': 'Impor cadangan',
+  'Export CSV': 'Ekspor CSV', 'Export backup': 'Ekspor cadangan',
+  'Add batches from file': 'Tambah batch dari file',
+  'Restore backup': 'Pulihkan cadangan',
+  'adds only, never replaces': 'hanya menambah, tidak mengganti',
+  'replaces everything on this phone': 'mengganti semua di HP ini',
   'Delete': 'Hapus', 'Edit': 'Ubah', 'Add grade': 'Tambah mutu', 'Reset defaults': 'Kembalikan awal',
   'Notes': 'Catatan', 'Cube tests': 'Uji kubus', '7 days': '7 hari', '28 days': '28 hari',
   'Strength estimate': 'Perkiraan kuat tekan', 'Cement type': 'Jenis semen',
@@ -359,7 +363,9 @@ const INFO = {
   strength: ['A <b>K-grade is a characteristic strength</b>: 95% of cube results must be at or above it, so the batch <i>average</i> has to sit higher — typically by 1.64 σ, where σ is the scatter of cube results on your site. The app estimates the mean from w/c (Abrams curve, cement type PCC/OPC), then subtracts 1.64 σ to show the characteristic K-grade that mean implies. That is why a mix labelled K300 shows a mean around 37 MPa and a characteristic around K300 — same mix, two different statistics. Log real cube results and the app re-fits the curve to your cement instead of the generic one.',
     'Mutu <b>K adalah kuat tekan karakteristik</b>: 95% hasil kubus harus sama atau di atasnya, jadi <i>rata-rata</i> campuran harus lebih tinggi — biasanya 1,64 σ, dengan σ adalah sebaran hasil kubus di site Anda. Aplikasi memperkirakan rata-rata dari w/c (kurva Abrams, jenis semen PCC/OPC), lalu mengurangi 1,64 σ untuk menunjukkan mutu K karakteristik yang dihasilkan. Karena itu campuran berlabel K300 tampil dengan rata-rata sekitar 37 MPa dan karakteristik sekitar K300 — campuran sama, dua statistik berbeda. Catat hasil kubus nyata dan aplikasi akan menyetel kurva ke semen Anda, bukan kurva umum.'],
   pour: ['Where this batch of concrete goes in the build — a pile group, a beam, a slab, or just a date. It is only a label: nothing is calculated from it. It groups the diary by what is being built, lets cube results be traced back to it, and every batch you start afterwards inherits it.',
-    'Ke bagian mana beton ini dituang — kelompok tiang, balok, plat, atau sekadar tanggal. Ini hanya label: tidak ada perhitungan darinya. Catatan dikelompokkan menurut bagian yang dicor, hasil kubus bisa dilacak ke bagian itu, dan campuran berikutnya mewarisi label ini.']
+    'Ke bagian mana beton ini dituang — kelompok tiang, balok, plat, atau sekadar tanggal. Ini hanya label: tidak ada perhitungan darinya. Catatan dikelompokkan menurut bagian yang dicor, hasil kubus bisa dilacak ke bagian itu, dan campuran berikutnya mewarisi label ini.'],
+  merge: ['Adds the batches from another phone’s backup to the diary on <b>this</b> phone and leaves everything else alone — recipes, calibration, prices, cement type and any batch in progress stay exactly as they are. A batch that is already here is skipped, matched on its batch id (or, for older files, on its timestamp, grade and volume). Nothing is ever deleted or replaced. Use “Restore backup” instead only when you want this phone to become a copy of the other one.',
+    'Menambahkan batch dari cadangan HP lain ke catatan di HP <b>ini</b>, dan tidak menyentuh yang lain — resep, kalibrasi, harga, jenis semen, dan campuran yang sedang berjalan tetap seperti adanya. Batch yang sudah ada dilewati, dicocokkan lewat id batch (untuk file lama: waktu, mutu, dan volume). Tidak ada yang dihapus atau diganti. Pakai “Pulihkan cadangan” hanya kalau HP ini mau dijadikan salinan HP lain.']
 };
 const infoBtn = (k) => `<button class="info" data-info="${k}" aria-label="?">?</button>`;
 const infoNote = (k) => `<div class="note info" id="info-${k}" style="display:none">${INFO[k][LANG === 'id' ? 1 : 0]}</div>`;
@@ -370,6 +376,7 @@ const ICONS = { Batch: '🧱', Slump: '📏', Diary: '📖', Grades: '📋', Cal
 let screen = 'Batch';
 let stageOpen = false;   // staging checklist expanded after the first slump reading
 let verdict = null;      // full-screen reaction to the last Record slump press
+let notice = null;       // full-screen result of an incremental batch import
 const openGrades = new Set();
 const openEntries = new Set();   // diary rows the user expanded
 
@@ -390,7 +397,7 @@ function render() {
   $('#ver').textContent = 'v' + VERSION;
   renderTabs();
   const map = { Batch: viewBatch, Slump: viewSlump, Diary: viewDiary, Grades: viewGrades, Calibration: viewCalib, Cost: viewCost, Settings: viewSettings, Tips: viewTips };
-  $('#main').innerHTML = (map[screen] || viewBatch)() + (verdict ? overlayHTML(verdict) : '');
+  $('#main').innerHTML = (map[screen] || viewBatch)() + (verdict ? overlayHTML(verdict) : '') + (notice ? noticeHTML(notice) : '');
   if (screen === 'Batch') syncBatch();
   window.scrollTo({ top: 0 });
 }
@@ -687,9 +694,16 @@ function viewDiary() {
       <button class="small" data-action="backup">${t('Export backup')}</button>
     </div>
     <div class="row" style="margin-top:8px">
-      <label class="small" style="display:block"><input type="file" id="importFile" accept="application/json" style="display:none">
-        <button class="small wide" data-action="import">${t('Import backup')}</button></label>
+      <label class="small" style="display:block"><input type="file" id="mergeFile" accept="application/json,.json" style="display:none">
+        <button class="small wide" data-action="merge">${t('Add batches from file')}</button></label>
     </div>
+    <div class="fine" style="margin-top:4px">${infoBtn('merge')} ${t('adds only, never replaces')}</div>
+    <div class="row" style="margin-top:8px">
+      <label class="small" style="display:block"><input type="file" id="importFile" accept="application/json" style="display:none">
+        <button class="small wide" data-action="import">${t('Restore backup')}</button></label>
+    </div>
+    <div class="fine" style="margin-top:4px">${t('replaces everything on this phone')}</div>
+    ${infoNote('merge')}
   </div>
   ${isEmpty ? `<div class="card center fine">${t('No batches logged yet.')}</div>` : ''}
   ${groups.length ? `<div class="card">
@@ -1150,6 +1164,23 @@ function overlayHTML(v) {
   </div>`;
 }
 
+/* Result of an incremental import: full screen, like the slump verdict, because
+   "did my batches go in and did anything of mine get lost?" must be answerable
+   in one glance. No water footer here — this is not a batch in progress. */
+function noticeHTML(v) {
+  const id = LANG === 'id';
+  return `<div class="vwrap" role="alertdialog" aria-live="assertive">
+    <div class="vcard v-${v.kind}">
+      <div class="vhead">${v.head}</div>
+      ${v.num ? `<div class="vnum">${v.num}</div>` : ''}
+      ${v.unit ? `<div class="vunit">${v.unit}</div>` : ''}
+      <div class="vbody">${v.body}</div>
+      <button class="vbtn ghost2" data-action="nclose">${id ? 'MENGERTI' : 'GOT IT'}</button>
+      ${v.fine ? `<div class="vfine">${v.fine}</div>` : ''}
+    </div>
+  </div>`;
+}
+
 /* Water the worker says actually went in. Falls back to the advised amount when
    the field is left alone, so the normal flow still needs no extra tap. */
 const creditedWater = (L) => {
@@ -1277,6 +1308,77 @@ function exportBackup() {
   download(`concrete-backup-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(S, null, 2), 'application/json');
 }
 
+/* ------------------------------------------------- incremental batch import --
+   Deliberately separate from the restore path above, which replaces the whole
+   state. Here only S.log is touched: recipes, calibration, prices, cement type,
+   settings and a batch in progress stay exactly as they are. A batch already in
+   the diary is skipped, matched on its id — or, for backups written before ids
+   existed, on timestamp + grade + volume. */
+/* Every key an entry can be recognised by. An entry is stored under its id AND
+   under what it is (timestamp + grade + volume), so a file that arrives without
+   ids still matches the copy that was saved with one — otherwise re-importing
+   the same backup would add the id-less batches again. */
+const entryKeys = (e) => {
+  const out = [];
+  if (e && e.id) out.push('id:' + e.id);
+  out.push('k:' + (+(e && e.ts) || 0) + '|' + ((e && e.gradeName) || '') + '|' + (e && e.vol != null ? (+e.vol).toFixed(3) : ''));
+  return out;
+};
+
+function mergeFile(text, fileName) {
+  const id = LANG === 'id';
+  let d = null;
+  try { d = JSON.parse(text); } catch (err) { d = null; }
+  const incoming = Array.isArray(d) ? d : (d && Array.isArray(d.log) ? d.log : null);
+  if (!incoming) {
+    notice = { kind: 'danger',
+      head: id ? 'BUKAN FILE CADANGAN' : 'NOT A BACKUP FILE',
+      body: id ? 'File ini tidak berisi data batch. Pakai file <b>.json</b> yang diekspor dari layar Catatan di HP lain.'
+        : 'That file carries no batch data. Use the <b>.json</b> file exported from the Diary screen on the other phone.' };
+    return render();
+  }
+  const seen = new Set();
+  S.log.forEach((e) => entryKeys(e).forEach((k) => seen.add(k)));
+  const fresh = [];
+  let dup = 0, bad = 0;
+  incoming.forEach((e) => {
+    if (!e || typeof e !== 'object' || !(+(e.ts) > 0)) { bad++; return; }
+    const keys = entryKeys(e);
+    if (keys.some((k) => seen.has(k))) { dup++; return; }
+    keys.forEach((k) => seen.add(k));
+    const c = Object.assign({}, e);
+    if (!c.id) c.id = 'b' + c.ts + 'm' + (fresh.length + 1);   // legacy entry without an id
+    fresh.push(c);
+  });
+  if (!fresh.length) {
+    notice = { kind: 'warn',
+      head: id ? 'TIDAK ADA YANG BARU' : 'NOTHING NEW',
+      num: nf(dup, 0), unit: id ? 'sudah ada' : 'already here',
+      body: id ? `Semua batch di file itu sudah ada di catatan Anda. <b>Tidak ada yang diubah.</b>`
+        : `Every batch in that file is already in your diary. <b>Nothing was changed.</b>`,
+      fine: (id ? 'catatan sekarang' : 'diary now') + ` ${S.log.length} ` + (S.log.length === 1 ? 'batch' : 'batches') };
+    return render();
+  }
+  const ask = (id
+    ? `Tambah ${fresh.length} batch ke catatan Anda (${S.log.length})? Tidak ada yang diganti.`
+    : `Add ${fresh.length} batches to your ${S.log.length}? Nothing is replaced.`)
+    + (dup ? (id ? `\n${dup} sudah ada — dilewati.` : `\n${dup} already here — skipped.`) : '');
+  if (!confirm(ask)) return;
+  const before = S.log.length;
+  S.log = S.log.concat(fresh).sort((a, b) => (+a.ts || 0) - (+b.ts || 0));
+  save();
+  notice = { kind: 'ok',
+    head: id ? 'BATCH DITAMBAHKAN' : 'BATCHES ADDED',
+    num: '+' + nf(fresh.length, 0), unit: id ? 'batch' : (fresh.length === 1 ? 'batch' : 'batches'),
+    body: (dup ? (id ? `${dup} sudah ada di catatan, dilewati. ` : `${dup} were already here, skipped. `) : '')
+      + (bad ? (id ? `${bad} baris tidak terbaca. ` : `${bad} unreadable rows. `) : '')
+      + (id ? 'Resep, kalibrasi, harga dan setelan tidak disentuh.'
+        : 'Recipes, calibration, prices and settings were not touched.'),
+    fine: (id ? 'catatan' : 'diary') + ` ${before} → <b>${S.log.length}</b>`
+      + (fileName ? ` · ${esc(fileName)}` : '' ) };
+  render();
+}
+
 /* ------------------------------------------------------------- handlers -- */
 document.addEventListener('click', (ev) => {
   const nav = ev.target.closest('[data-nav]');
@@ -1316,6 +1418,7 @@ document.addEventListener('click', (ev) => {
   if (act === 'slump-rec') return recordSlump();
   if (act === 'slump-finish') return finishBatch();
   if (act === 'vclose') { verdict = null; return render(); }
+  if (act === 'nclose') { notice = null; return render(); }
   if (act === 'vfinish') { verdict = null; return finishBatch(); }
   if (act === 'slump-cancel') { verdict = null; S.live = null; save(); screen = 'Batch'; return render(); }
   if (act === 'slump-note') {
@@ -1330,6 +1433,7 @@ document.addEventListener('click', (ev) => {
   if (act === 'csv') return exportCSV();
   if (act === 'backup') return exportBackup();
   if (act === 'import') return $('#importFile') && $('#importFile').click();
+  if (act === 'merge') { verdict = null; return $('#mergeFile') && $('#mergeFile').click(); }
   if (act === 'grade-add') {
     const id = 'g' + Date.now();
     S.grades.push({ id, key: 'K' + (300 + S.grades.length), name: 'K??? — new', source: 'site', sand: 1.8, gravel: 2.75, wc: 0.5, sp: 0 });
@@ -1403,6 +1507,17 @@ document.addEventListener('input', (ev) => {
 
 document.addEventListener('change', (ev) => {
   const el = ev.target;
+  if (el.id === 'mergeFile' && el.files && el.files[0]) {
+    const file = el.files[0];
+    const fr = new FileReader();
+    fr.onload = () => {
+      try { mergeFile(String(fr.result), file.name); }
+      catch (e) { console.warn('merge failed', e); toast(LANG === 'id' ? 'Gagal membaca file' : 'Could not read that file'); }
+      el.value = '';                       // same file can be picked again
+    };
+    fr.readAsText(file);
+    return;
+  }
   if (el.id === 'importFile' && el.files && el.files[0]) {
     const fr = new FileReader();
     fr.onload = () => {
