@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.10.0';
+const VERSION = '1.10.1';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -1176,8 +1176,8 @@ function shortAdvice(L, slump) {
     : (id ? 'langsung ke drum yang berputar' : 'straight into the turning drum');
   const spLine = `${id ? 'Atau plastisizer' : 'Or plasticizer'} <b>+${nf(spML, 0)} mL</b> ${spWhere} · ${id ? 'dosis' : 'dose'} <b>${dose}</b>`;
   const spOnly = id
-    ? `Plastisizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, aduk 2 menit, lalu ukur lagi. Dosis <b>${dose}</b>.`
-    : `Plasticizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, mix 2 minutes, then measure again. Dose <b>${dose}</b>.`;
+    ? `Plastisizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, aduk 5 menit, lalu ukur lagi. Dosis <b>${dose}</b>.`
+    : `Plasticizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, mix 5 minutes, then measure again. Dose <b>${dose}</b>.`;
   const noSPNote = hasSP ? '' : (id
     ? ' Resep ini tanpa plastisizer — menambahkannya mengubah campuran.'
     : ' This recipe carries no plasticizer — adding it changes the mix.');
