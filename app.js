@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.9.0';
+const VERSION = '1.10.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -69,7 +69,9 @@ const ID = {
   'Cast': 'Cetak', 'due now': 'sudah jatuh tempo', 'due in': 'jatuh tempo dalam', 'Pours': 'Coran',
   'Ungrouped': 'Tanpa coran',
   'Staging': 'Persiapan', 'Staged': 'Siap', 'Slump test': 'Uji slump',
-  'Buffer': 'Cadangan'
+  'Buffer': 'Cadangan',
+  'Plasticizer only': 'Plastisizer saja', 'Both at max': 'Air dan SP di batas',
+  'SP max': 'Maks SP', 'Default max dose': 'Dosis maks awal'
 };
 
 let LANG = 'en';
@@ -92,11 +94,11 @@ function setPath(obj, path, val) {
 
 /* --------------------------------------------------------------- state --- */
 const DEFAULT_GRADES = () => ([
-  { id: 'g300s', key: 'K300', name: 'K300 — site mix (No SP)',       source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.490,  sp: 0 },
-  { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.540,  sp: 0 },
-  { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48 },
-  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53 },
-  { id: 'gpile', key: 'Pile', name: 'K350 — Bore pile mix', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, tslump: 16 }
+  { id: 'g300s', key: 'K300', name: 'K300 — site mix (No SP)',       source: 'site', sand: 1.80,  gravel: 2.75,  wc: 0.490,  sp: 0,    spCap: 0.8 },
+  { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.540,  sp: 0,    spCap: 0.8 },
+  { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48, spCap: 0.8 },
+  { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53, spCap: 0.8 },
+  { id: 'gpile', key: 'Pile', name: 'K350 — Bore pile mix', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, spCap: 0.8, tslump: 16 }
 ]);
 
 const DEFAULTS = () => ({
@@ -115,6 +117,7 @@ const DEFAULTS = () => ({
   spMaxPct: 0.8,
   spDensity: 1.06,
   spUnitV2: true,
+  spCapV1: true,
   sigmaMPa: 5,
   wcTrimV2: true,
   defaultsV: 4,
@@ -163,6 +166,12 @@ function load() {
       });
       S.wcTrimV2 = true;
     }
+    // migration: the SP dose cap is per recipe now (0.8 % = top of the datasheet
+    // band for soft-plastic concrete). Fill blanks only — never overwrite a typed cap.
+    if (!d.spCapV1) {
+      S.grades.forEach((g) => { if (g && !(+g.spCap > 0)) g.spCap = +S.spMaxPct || 0.8; });
+      S.spCapV1 = true;
+    }
     // migration: ship new built-in presets to existing installs (only ones never seen)
     if (!(+d.defaultsV >= 2)) {
       const have = new Set(S.grades.map((g) => g.id));
@@ -191,7 +200,7 @@ function load() {
       S.defaultsV = 4;
     }
     // persist migration results so they do not re-run on every load
-    if (d.defaultsV !== S.defaultsV || d.spUnitV2 !== S.spUnitV2 || d.wcTrimV2 !== S.wcTrimV2) save();
+    if (d.defaultsV !== S.defaultsV || d.spUnitV2 !== S.spUnitV2 || d.wcTrimV2 !== S.wcTrimV2 || d.spCapV1 !== S.spCapV1) save();
   } catch (e) { console.warn('load failed', e); }
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.warn('save failed', e); } }
@@ -206,8 +215,15 @@ const grade = () => S.grades.find((g) => g.id === S.gradeId) || S.grades[0];
 /* Superplasticizer: dose is a % of cement weight (datasheet convention),
    converted to litres with the product density (~1.06 kg/L for PCE). */
 const spDensity = () => +S.spDensity || 1.06;
-const spPctOf = (g) => Math.max(0, Math.min(+g.sp || 0, +S.spMaxPct || 0));
-const spCapped = (g) => (+g.sp || 0) > (+S.spMaxPct || 0) + 1e-9;
+/* The dose cap is per recipe, not one global number. 0.8 % is the top of the
+   datasheet band for soft-plastic concrete — a mix that is workable without
+   plasticizer, which is what the site and pile mixes are. 0.8–2.0 % belongs to
+   flowing/SCC designs that need a special mix design; pouring 2 % into a mix
+   built without plasticizer buys bleeding, not slump. Settings supplies the
+   default for recipes that carry no cap of their own. */
+const spCapOfG = (g) => +((g && +g.spCap > 0 ? +g.spCap : +S.spMaxPct) || 0.8);
+const spPctOf = (g) => Math.max(0, Math.min(+g.sp || 0, spCapOfG(g)));
+const spCapped = (g) => (+g.sp || 0) > spCapOfG(g) + 1e-9;
 
 /* A grade may carry its own slump target (e.g. a flowable pile mix); otherwise
    the global default from Settings applies. A running batch freezes its target. */
@@ -354,10 +370,10 @@ const INFO = {
     'Batas keras — jangan menuang lebih dari ini. Dihitung terhadap semen yang benar-benar ada di drum (termasuk cadangan). Dengan cadangan 0 nilainya sama dengan “air untuk dituang”; selisih keduanya <b>adalah</b> cadangan semen. Tidak ada hal lain yang membuat keduanya berbeda.'],
   buckets: ['Whole level-full buckets, rounded <b>down</b>. The remainder is added as a partial bucket at the end — nothing is ever scooped back out of a full bucket.',
     'Ember penuh diratakan, dibulatkan <b>ke bawah</b>. Sisanya ditambahkan sebagai sebagian ember di akhir — tidak pernah mengurangi ember yang sudah penuh.'],
-  sp: ['Superplasticizer for this batch. <b>Dose is % of cement weight</b>, as the datasheet writes it, converted to millilitres with the product density. Dilute it into half the mixing water — never onto dry material, and never add water after it. Add in two half-doses with a mix and a slump test between them.',
-    'Plastisizer untuk campuran ini. <b>Dosis dalam % berat semen</b>, seperti di lembar data, diubah ke mililiter memakai massa jenis produk. Encerkan ke setengah air — jangan ke bahan kering, dan jangan menambah air setelahnya. Beri dua setengah dosis dengan aduk dan uji slump di antaranya.'],
-  spmax: ['Hard ceiling on superplasticizer dose, as % of cement weight. Viscocrete 3115 N datasheet: <b>0.3–0.8%</b> for soft plastic concrete (your 8–12 cm slump), <b>0.8–2.0%</b> only for flowing or self-compacting concrete. The app refuses to dose above this and flags the recipe if it asks for more.',
-    'Batas keras dosis plastisizer, dalam % berat semen. Lembar data Viscocrete 3115 N: <b>0,3–0,8%</b> untuk beton plastis (slump 8–12 cm), <b>0,8–2,0%</b> hanya untuk beton mengalir atau self-compacting. Aplikasi menolak dosis di atas ini dan menandai resep yang meminta lebih.'],
+  sp: ['Superplasticizer for this batch. <b>Dose is % of cement weight</b>, as the datasheet writes it, converted to millilitres with the product density. Add it to the mixing water or pour it together with the water — never onto dry material. Wet-mix at least <b>5 minutes</b> (Viscocrete 3115 N datasheet), and only start adding the remaining water in the last third of that time. Once it is in, do not try to stretch the slump with water: add more plasticizer instead.',
+    'Plastisizer untuk campuran ini. <b>Dosis dalam % berat semen</b>, seperti di lembar data, diubah ke mililiter memakai massa jenis produk. Masukkan ke air pengaduk atau tuang bersamaan dengan air — jangan ke bahan kering. Aduk basah minimal <b>5 menit</b> (lembar data Viscocrete 3115 N), dan mulai tambahkan sisa air hanya pada sepertiga terakhir waktu itu. Setelah masuk, jangan mengejar slump dengan air: tambah plastisizer.'],
+  spmax: ['Cap on the <b>total</b> plasticizer dose for one recipe, as % of cement weight — the recipe\'s own dose plus everything added during mixing. Viscocrete 3115 N datasheet: <b>0.3–0.8%</b> for soft plastic concrete, i.e. a mix that is workable without plasticizer (that is what the site and pile mixes are); <b>0.8–2.0%</b> only for flowing or self-compacting concrete, and the datasheet adds that those need <i>a special mix design</i>. That is why the cap is per recipe rather than one global number: 2% poured into a mix designed without plasticizer buys bleeding, not slump. Set it per recipe on the Grades tab; the value here is only the default for recipes that carry none.',
+    'Batas dosis <b>total</b> plastisizer untuk satu resep, dalam % berat semen — dosis resep ditambah semua yang ditambahkan saat mengaduk. Lembar data Viscocrete 3115 N: <b>0,3–0,8%</b> untuk beton plastis, yaitu campuran yang sudah bisa dikerjakan tanpa plastisizer (seperti resep site dan tiang bor); <b>0,8–2,0%</b> hanya untuk beton mengalir atau self-compacting, dan lembar data menambahkan bahwa itu butuh <i>rancangan campuran khusus</i>. Karena itu batasnya per resep, bukan satu angka global: 2% ke dalam campuran yang dirancang tanpa plastisizer hanya membeli bleeding. Atur per resep di tab Mutu; nilai di sini hanya awal untuk resep yang belum punya batas sendiri.'],
   k: ['How much extra water raises slump by 1 cm, per m³ of concrete. Default 2.4 L/m³ per cm — that is about 0.48 L per cm on a 0.2 m³ batch. The app re-fits this automatically from every finished batch (±20% per batch, so it cannot run away), which makes the next addition more accurate for your sand, cement and mixer.',
     'Berapa banyak air tambahan menaikkan slump 1 cm, per m³ beton. Awal 2,4 L/m³ per cm — sekitar 0,48 L per cm untuk campuran 0,2 m³. Aplikasi menyetel ulang otomatis dari setiap campuran yang selesai (±20% per campuran, jadi tidak bisa melenceng), sehingga tambahan berikutnya makin akurat untuk pasir, semen dan molen Anda.'],
   strength: ['A <b>K-grade is a characteristic strength</b>: 95% of cube results must be at or above it, so the batch <i>average</i> has to sit higher — typically by 1.64 σ, where σ is the scatter of cube results on your site. The app estimates the mean from w/c (Abrams curve, cement type PCC/OPC), then subtracts 1.64 σ to show the characteristic K-grade that mean implies. That is why a mix labelled K300 shows a mean around 37 MPa and a characteristic around K300 — same mix, two different statistics. Log real cube results and the app re-fits the curve to your cement instead of the generic one.',
@@ -530,9 +546,9 @@ function syncBatch() {
   if (s.mS != null && s.creditS > 0) w.push(`<div class="note info">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ${t('Moisture').toLowerCase()} → ${nf(s.creditS, 1)} L ${LANG === 'id' ? 'dikurangi dari air' : 'credited to the mix'}</div>`);
   if (s.mS != null && s.creditS <= 0) w.push(`<div class="note warn">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ≤ ${t('Absorption').toLowerCase()} ${S.moist.sandAbs}% → ${LANG === 'id' ? 'tidak ada air bebas' : 'no free water, no credit'}</div>`);
   if (s.spCapped) w.push(`<div class="note danger"><b>${t('Dose capped')}</b> — ${LANG === 'id'
-    ? `resep minta ${nf(s.g.sp, 2)}% tetapi maksimum ${nf(S.spMaxPct, 2)}%. Dipakai ${nf(s.spPct, 2)}%.`
-    : `recipe asks ${nf(s.g.sp, 2)}% but the max is ${nf(S.spMaxPct, 2)}%. Using ${nf(s.spPct, 2)}%.`}</div>`);
-  if (s.spL > 0) w.push(`<div class="note info">${t('Plasticizer')}: ${nf(s.spL * 1000, 0)} mL = ${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari berat semen' : 'of cement weight'}. ${LANG === 'id' ? 'Encerkan dalam setengah air, jangan tuang ke bahan kering.' : 'Dilute in half the water — never onto dry material.'}</div>`);
+    ? `resep minta ${nf(s.g.sp, 2)}% tetapi maksimum ${nf(spCapOfG(s.g), 2)}%. Dipakai ${nf(s.spPct, 2)}%.`
+    : `recipe asks ${nf(s.g.sp, 2)}% but the max is ${nf(spCapOfG(s.g), 2)}%. Using ${nf(s.spPct, 2)}%.`}</div>`);
+  if (s.spL > 0) w.push(`<div class="note info">${t('Plasticizer')}: ${nf(s.spL * 1000, 0)} mL = ${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari berat semen' : 'of cement weight'}. ${LANG === 'id' ? 'Encerkan dalam air, jangan tuang ke bahan kering. Aduk basah 5 menit.' : 'Dilute in the water — never onto dry material. Wet mix 5 minutes.'}</div>`);
   const wEl = document.getElementById('warn'); if (wEl) wEl.innerHTML = w.join('');
   if (wEl && !w.length) wEl.innerHTML = '';
 }
@@ -555,8 +571,8 @@ function stageSteps(L) {
     { m: t('Cement'), s: `${nf(L.n, L.n % 1 ? 1 : 0)} × ${L.sack} kg = ${nf(L.Cact, 0)} kg` },
     { m: id ? 'Aduk kering' : 'Dry mix', s: id ? 'pasir + kerikil 1 menit, lalu semen, aduk 1 menit' : 'sand + gravel 1 min, then cement, mix 1 min' }
   ];
-  if (L.spL > 0) out.push({ m: t('Plasticizer'), s: `${nf(L.spL * 1000, 0)} mL — ${id ? 'encerkan di setengah air awal, jangan ke bahan kering' : 'diluted in half the start water, never onto dry material'}` });
-  out.push({ m: t('Start water'), s: `${nf(L.startWater, 1)} L — ${id ? 'aduk 2 menit' : 'mix 2 minutes'}` });
+  if (L.spL > 0) out.push({ m: t('Plasticizer'), s: `${nf(L.spL * 1000, 0)} mL — ${id ? 'encerkan di air awal, jangan ke bahan kering' : 'diluted in the start water, never onto dry material'}` });
+  out.push({ m: t('Start water'), s: `${nf(L.startWater, 1)} L — ${id ? 'aduk basah 5 menit, lalu setel' : 'wet mix 5 min, then trim'}` });
   out.push({ m: t('Slump test'), s: id ? 'ukur, lalu masukkan angkanya di bawah' : 'measure, then enter the reading below' });
   return out;
 }
@@ -575,7 +591,7 @@ function viewSlump() {
 
   let guidance = '';
   if (last == null) {
-    guidance = `<div class="note info">${LANG === 'id' ? 'Tuang air awal, aduk 2 menit, lalu ukur slump.' : 'Pour the start water, mix 2 minutes, then measure the slump.'}</div>`;
+    guidance = `<div class="note info">${LANG === 'id' ? 'Tuang air awal, aduk basah 5 menit, lalu ukur slump.' : 'Pour the start water, wet mix 5 minutes, then measure the slump.'}</div>`;
   } else if (inBand) {
     guidance = `<div class="note ok"><b>${t('Ready')}</b> — ${LANG === 'id' ? 'slump dalam target. Tekan Selesai.' : 'slump is in the band. Press Finish batch.'}</div>`;
   } else if (overWet) {
@@ -590,19 +606,12 @@ function viewSlump() {
       <br><b>+${nf(dC, 1)} kg ${t('Cement')} · +${nf(dC * L.g.sand, 1)} kg ${t('Sand')} · +${nf(dC * L.g.gravel, 1)} kg ${t('Gravel')}</b>
       <br><span class="fine">${LANG === 'id' ? 'Volume campuran bertambah — cek kapasitas molen.' : 'Batch volume grows — check mixer capacity.'}</span></div>`;
   } else {
-    const add = nextWater(L, last);
+    const a = shortAdvice(L, last);
     const kL = (+S.kPerM3PerCm || 2.4) * L.vol;
-    if (add < 0.1) {
-      guidance = `<div class="note danger"><b>${LANG === 'id' ? 'Batas air tercapai' : 'Water limit reached'}</b> — ${LANG === 'id'
-        ? 'Slump masih di bawah ' + lo + ' cm. Pakai plastisizer sesuai dosis, atau tambah semen + agregat proporsional. Jangan tambah air.'
-        : 'Slump is still below ' + lo + ' cm. Use plasticizer at the label dose, or add cement + aggregate proportionally. No more water.'}</div>`;
-    } else {
-      guidance = `<div class="note warn"><b>${t('Add water')}: ${nf(add, 1)} L</b> — ${LANG === 'id' ? 'aduk 1–2 menit, ukur lagi.' : 'mix 1–2 minutes, then measure again.'}
-        <br><span class="fine">k = ${nf(kL, 2)} L/cm ${LANG === 'id' ? 'untuk campuran ini' : 'for this batch'} · ${t('Remaining')} ${nf(Math.max(0, L.ceilingNet - L.poured - add), 1)} L</span>
-        ${L.spL > 0 ? `<br><span class="fine">${LANG === 'id'
-          ? `Atau tambah plastisizer +0,1% (≈${nf(0.001 * L.Cact / spDensity() * 1000, 0)} mL) — untuk campuran ini itu lebih tepat daripada air.`
-          : `Or add plasticizer +0.1% (≈${nf(0.001 * L.Cact / spDensity() * 1000, 0)} mL) — for this mix that beats more water.`}</span>` : ''}</div>`;
-    }
+    const left = Math.max(0, L.ceilingNet - L.poured - nextWater(L, last));
+    guidance = `<div class="note ${a.kind}"><b>${a.head}${a.num ? `: ${a.num}` : ''}</b> — ${a.body}
+      ${a.alt ? `<br><span class="fine">${a.alt}</span>` : ''}
+      ${a.inputs ? `<br><span class="fine">k = ${nf(kL, 2)} L/cm ${LANG === 'id' ? 'untuk campuran ini' : 'for this batch'} · ${t('Remaining')} ${nf(left, 1)} L</span>` : ''}</div>`;
   }
 
   const adds = L.adds.length
@@ -648,8 +657,8 @@ function viewSlump() {
     ${(+L.spExtra > 0) ? (() => {
       const tot = (L.spL + (+L.spExtra || 0) / 1000);
       const pctSp = L.Cact > 0 ? tot * spDensity() / L.Cact * 100 : 0;
-      const over = pctSp > (+S.spMaxPct || 0) + 1e-9;
-      return `<div class="note ${over ? 'danger' : 'info'}">${LANG === 'id' ? 'SP tambahan' : 'Extra SP'} <b>+${nf(+L.spExtra, 0)} mL</b> · ${LANG === 'id' ? 'total dosis' : 'total dose'} <b>${nf(pctSp, 2)}%</b> ${LANG === 'id' ? 'dari semen' : 'of cement'}${over ? ` — <b>${LANG === 'id' ? 'di atas batas' : 'above the cap'} ${nf(+S.spMaxPct, 2)}%</b>` : ''}</div>`;
+      const over = pctSp > capOf(L) + 1e-9;
+      return `<div class="note ${over ? 'danger' : 'info'}">${LANG === 'id' ? 'SP tambahan' : 'Extra SP'} <b>+${nf(+L.spExtra, 0)} mL</b> · ${LANG === 'id' ? 'total dosis' : 'total dose'} <b>${nf(pctSp, 2)}%</b> ${LANG === 'id' ? 'dari semen' : 'of cement'}${over ? ` — <b>${LANG === 'id' ? 'di atas batas' : 'above the cap'} ${nf(capOf(L), 2)}%</b>` : ''}</div>`;
     })() : ''}
   </div>
 
@@ -769,12 +778,17 @@ function viewGrades() {
             <label class="field" style="margin:0"><span class="lbl">${t('Gravel ratio')}</span><input type="number" step="0.01" value="${g.gravel}" data-grade="${g.id}" data-gf="gravel" data-num="1"></label>
             <label class="field" style="margin:0"><span class="lbl">w/c</span><input type="number" step="0.005" value="${g.wc}" data-grade="${g.id}" data-gf="wc" data-num="1"></label>
           </div>
-          <div class="row3" style="margin-top:8px">
+          <div class="row" style="margin-top:8px">
             <label class="field" style="margin:0"><span class="lbl">SP % ${LANG === 'id' ? 'semen' : 'cement'}</span><input type="number" step="0.01" min="0" value="${g.sp || 0}" data-grade="${g.id}" data-gf="sp" data-num="1"></label>
+            <label class="field" style="margin:0"><span class="lbl">${t('SP max')} %</span>
+              <input type="number" step="0.1" min="0" max="5" value="${spCapOfG(g)}" data-grade="${g.id}" data-gf="spCap" data-num="1">
+              <span class="hint">${LANG === 'id' ? 'semen · 0,8 plastis · 2,0 SCC' : 'of cement · 0.8 plastic · 2.0 SCC'}</span></label>
+          </div>
+          <div class="row" style="margin-top:8px">
             <label class="field" style="margin:0"><span class="lbl">${t('Source')}</span>
               <select data-grade="${g.id}" data-gf="source">
                 <option value="site" ${g.source === 'site' ? 'selected' : ''}>${t('Site mix')}</option>
-                <option value="rmx" ${g.source === 'rmx' ? 'selected' : ''}>${t('Jayamix design')}</option>
+                <option value="rmx" ${g.source === 'rmx' ? 'selected' : ''}>Jayamix</option>
               </select></label>
             <label class="field" style="margin:0"><span class="lbl">${t('Target slump')}</span>
               <input type="number" step="0.5" min="0" placeholder="${S.targetSlump}" value="${g.tslump || ''}" data-grade="${g.id}" data-gf="tslump" data-num="1">
@@ -784,6 +798,9 @@ function viewGrades() {
             <button class="xs" data-action="grade-del" data-id="${g.id}">${t('Delete')}</button>
           </div>
           <div class="fine" style="margin-top:8px">${t('Cement content')} ≈ ${nf(c.C, 0)} kg/m³ · ${nf(f, 1)} MPa ${LANG === 'id' ? 'rata-rata' : 'mean'} · K${Math.round(gradeFit(f).kChar)} ${LANG === 'id' ? 'karakteristik' : 'characteristic'} (σ ${nf(sigmaMPa(), 1)} MPa)</div>
+          ${g.source === 'rmx' ? `<div class="fine" style="margin-top:4px">${LANG === 'id'
+            ? 'Desain pabrik pemasok — bukan resep site: mutunya bergantung pada semen kelas 50 dan batching plant. Jangan dipakai sebagai instruksi campuran di lokasi.'
+            : 'Supplier plant design — not a site recipe: its grade depends on strength-class cement and a batching plant. Do not use it as a site mixing instruction.'}</div>` : ''}
         </div>
       </details>`;
     }).join('')}
@@ -1033,12 +1050,12 @@ function viewSettings() {
     </div>
     ${infoNote('k')}
     <div class="row" style="margin-top:10px">
-      <label class="field" style="margin:0"><span class="lbl">${t('Superplasticizer max dose')} ${infoBtn('spmax')}</span>
+      <label class="field" style="margin:0"><span class="lbl">${t('Default max dose')} ${infoBtn('spmax')}</span>
         <input type="number" step="0.1" min="0" max="5" data-bind="spMaxPct" data-num="1" value="${S.spMaxPct}">
-        <span class="hint">% ${LANG === 'id' ? 'dari berat semen' : 'of cement weight'}</span></label>
+        <span class="hint">% ${LANG === 'id' ? 'dari berat semen · untuk resep baru' : 'of cement weight · new recipes only'}</span></label>
       <label class="field" style="margin:0"><span class="lbl">${t('SP density')}</span>
         <input type="number" step="0.01" min="0.8" max="1.4" data-bind="spDensity" data-num="1" value="${S.spDensity}">
-        <span class="hint">kg/L</span></label>
+        <span class="hint">kg/L · ${LANG === 'id' ? 'timbang 1 L untuk memastikan' : 'weigh 1 L to confirm'}</span></label>
     </div>
     ${infoNote('spmax')}
     <label class="field"><span class="lbl">${t('Batch scatter σ')} ${infoBtn('strength')}</span>
@@ -1075,7 +1092,7 @@ function viewSettings() {
 function startBatch() {
   const s = snapshot();
   S.live = {
-    ts: Date.now(), gradeId: s.g.id, gradeName: s.g.name, g: { sand: s.g.sand, gravel: s.g.gravel, wc: s.g.wc, sp: s.g.sp || 0, key: s.g.key },
+    ts: Date.now(), gradeId: s.g.id, gradeName: s.g.name, g: { sand: s.g.sand, gravel: s.g.gravel, wc: s.g.wc, sp: s.g.sp || 0, spCap: spCapOfG(s.g), key: s.g.key },
     sack: s.sack, n: s.n, Cnom: s.Cnom, Cact: s.Cact, wc: s.g.wc,
     sandSSD: s.sandSSD, gravSSD: s.gravSSD, wetSand: s.wetSand, wetGrav: s.wetGrav,
     waterCorrected: s.waterCorrected, ceilingNet: s.ceilingNet, vol: s.vol, spL: s.spL,
@@ -1108,6 +1125,89 @@ function wetExcess(L, slump) {
   return Math.max(0, L.poured - L.ceilingNet, overshoot);
 }
 
+/* ---- superplasticizer headroom -------------------------------------------
+   The cap is a ceiling on the TOTAL dose, so the room left depends on what is
+   already in the drum: the recipe's own dose plus everything logged as extra.
+   One owner for "how much plasticizer next" — the inline card, the verdict and
+   the recorder all read it. Two copies drift, and then the big card disagrees
+   with the note under it. */
+const capOf = (L) => spCapOfG((L && L.g) || grade());
+function doseNow(L) {
+  const C = +(L && L.Cact) || 0;
+  const extraL = (+(L && L.spExtra) || 0) / 1000;
+  const base = +((L && L.g && L.g.sp) || 0);
+  return base + (C > 0 ? (extraL * spDensity() / C) * 100 : 0);
+}
+const spRoomPct = (L) => Math.max(0, capOf(L) - doseNow(L));
+/* The step shrinks at the edge, so the last dose can never overrun the cap. */
+const spStepPct = (L) => Math.min(0.1, spRoomPct(L));
+const spStepML = (L) => (spStepPct(L) / 100) * (+(L && L.Cact) || 0) / spDensity() * 1000;
+
+/* ---- "slump is short, what now?" -----------------------------------------
+   Two levers, two ceilings, four cases:
+     water room + SP room  -> offer both (the SP lever only on a recipe that
+                              already carries plasticizer — otherwise the water
+                              can still do the job the recipe was designed for)
+     water room + SP capped-> water only
+     water at ceiling      -> plasticizer only, and it goes in NEAT into the
+                              turning drum: it does not need water to carry it,
+                              only to meet wet cement. With water closed, diluting
+                              it would mean pouring over the ceiling.
+     both exhausted        -> neither. Say so plainly instead of inventing a step.
+
+   The plasticizer dose is a step, not a prediction: nobody can say how many
+   centimetres 0.1 % buys on a given cement, so the card offers the increment
+   and the cone decides. Two independent sources (datasheet soft-plastic band,
+   Jayamix 0.48 %) put the working range for these mixes at 0.4–0.6 %. */
+function shortAdvice(L, slump) {
+  const id = LANG === 'id';
+  const waterRoom = Math.max(0, L.ceilingNet - L.poured);
+  const add = nextWater(L, slump);
+  const spML = spStepML(L);
+  const spOK = spRoomPct(L) > 0.009 && spML >= 5;   // room for a dose worth measuring
+  const waterOK = add >= 0.1;
+  const hasSP = +L.g.sp > 0;
+  const cap = capOf(L);
+  const dose = `${nf(doseNow(L), 2)}% → ${nf(doseNow(L) + spStepPct(L), 2)}% ${id ? 'dari' : 'of'} ${nf(cap, 2)}%`;
+  const carrier = Math.min(1, waterRoom);
+  const offerSP = spOK && (hasSP || !waterOK);
+  const spWhere = carrier >= 0.2
+    ? (id ? `dalam ${nf(carrier, 1)} L air (dari sisa ${nf(waterRoom, 1)} L)` : `in ${nf(carrier, 1)} L of the ${nf(waterRoom, 1)} L left`)
+    : (id ? 'langsung ke drum yang berputar' : 'straight into the turning drum');
+  const spLine = `${id ? 'Atau plastisizer' : 'Or plasticizer'} <b>+${nf(spML, 0)} mL</b> ${spWhere} · ${id ? 'dosis' : 'dose'} <b>${dose}</b>`;
+  const spOnly = id
+    ? `Plastisizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, aduk 2 menit, lalu ukur lagi. Dosis <b>${dose}</b>.`
+    : `Plasticizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, mix 2 minutes, then measure again. Dose <b>${dose}</b>.`;
+  const noSPNote = hasSP ? '' : (id
+    ? ' Resep ini tanpa plastisizer — menambahkannya mengubah campuran.'
+    : ' This recipe carries no plasticizer — adding it changes the mix.');
+  const left = nf(Math.max(0, waterRoom - add), 1);
+  const anySP = hasSP || +L.spExtra > 0;
+  if (waterOK && offerSP) {
+    return { kind: 'warn', head: t('Add water').toUpperCase(), num: `${nf(add, 1)} L`, unit: id ? 'sekarang' : 'now', inputs: true,
+      body: id ? `Aduk 1–2 menit, lalu ukur lagi. Sisa air ${left} L.` : `Mix 1–2 minutes, then measure again. ${left} L of water left.`,
+      alt: spLine };
+  }
+  if (waterOK) {
+    /* Water still available but plasticizer is not an option: either it is at
+       its cap, or this recipe was designed without it. Do not mention a cap
+       that does not apply. */
+    const capNote = anySP && !spOK
+      ? (id ? ` Plastisizer sudah di batas ${nf(cap, 2)}%.` : ` Plasticizer is at its cap of ${nf(cap, 2)}%.`)
+      : '';
+    return { kind: 'warn', head: t('Add water').toUpperCase(), num: `${nf(add, 1)} L`, unit: id ? 'sekarang' : 'now', inputs: true,
+      body: (id ? `Aduk 1–2 menit, lalu ukur lagi. Sisa air ${left} L.` : `Mix 1–2 minutes, then measure again. ${left} L of water left.`) + capNote };
+  }
+  if (offerSP) {
+    return { kind: 'warn', head: t('Plasticizer only').toUpperCase(), num: `+${nf(spML, 0)} mL`, unit: '', inputs: true,
+      body: spOnly + noSPNote };
+  }
+  return { kind: 'danger', head: t('Both at max').toUpperCase(), num: '', unit: '', inputs: false,
+    body: id
+      ? 'Air dan plastisizer sama-sama di batas — campuran ini tidak bisa dibuat lebih cair. Tuang kalau masih bisa dituang, dan catat slump yang didapat: target resep ini tidak tercapai dengan campuran ini.'
+      : "Water and plasticizer are both at their limits — this batch cannot be made more fluid. Place it if it still pours, and record the slump you got: this recipe's target is not reachable with this mix." };
+}
+
 function makeVerdict(L, slump) {
   const id = LANG === 'id';
   const lo = effTarget(L) - effBand(L), hi = effTarget(L) + effBand(L);
@@ -1128,18 +1228,9 @@ function makeVerdict(L, slump) {
       body: id ? `Slump dalam target ${effTarget(L)} ± ${effBand(L)} cm. Selesaikan campuran ini.` : `Slump is inside the band ${effTarget(L)} ± ${effBand(L)} cm. Finish this batch.`,
       finish: true });
   }
-  if (L.nextAdd < 0.1) {
-    return Object.assign(base, { kind: 'danger',
-      head: id ? 'BATAS AIR TERCAPAI' : 'WATER LIMIT REACHED',
-      num: id ? 'jangan tambah air' : 'no more water', unit: '',
-      body: id ? `Slump ${nf(slump, 1)} cm masih di bawah ${lo} cm. Pakai plastisizer sesuai dosis, atau tambah semen + agregat proporsional.`
-        : `Slump ${nf(slump, 1)} cm is still under ${lo} cm. Use plasticizer at the label dose, or add cement + aggregate proportionally.` });
-  }
-  return Object.assign(base, { kind: 'warn', inputs: true,
-    head: id ? 'TAMBAH AIR' : 'ADD WATER',
-    num: `${nf(L.nextAdd, 1)} L`, unit: id ? 'sekarang' : 'now',
-    body: id ? `Aduk 1–2 menit, lalu ukur lagi. Sisa air ${nf(Math.max(0, L.ceilingNet - L.poured - L.nextAdd), 1)} L.`
-      : `Mix 1–2 minutes, then measure again. ${nf(Math.max(0, L.ceilingNet - L.poured - L.nextAdd), 1)} L of water left.` });
+  /* Short of the band: one owner decides, so the verdict and the inline card
+     can never recommend different levers. */
+  return Object.assign(base, shortAdvice(L, slump));
 }
 
 function overlayHTML(v) {
@@ -1150,6 +1241,7 @@ function overlayHTML(v) {
       ${v.num ? `<div class="vnum">${v.num}</div>` : ''}
       ${v.unit ? `<div class="vunit">${v.unit}</div>` : ''}
       <div class="vbody">${v.body}</div>
+      ${v.alt ? `<div class="vbody" style="margin-top:8px">${v.alt}</div>` : ''}
       ${v.inputs ? `<div class="addrow" style="margin:0 0 8px">
         <label class="field" style="margin:0"><span class="lbl">${id ? 'Air dituang' : 'Water poured'} (L)</span>
           <input type="number" inputmode="decimal" step="0.1" min="0" data-live="actual" value="${nf(S.live && S.live.actual != null ? +S.live.actual : 0, 1)}"></label>
