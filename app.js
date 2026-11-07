@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.10.1';
+const VERSION = '1.10.4';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -1174,7 +1174,11 @@ function shortAdvice(L, slump) {
   const spWhere = carrier >= 0.2
     ? (id ? `dalam ${nf(carrier, 1)} L air (dari sisa ${nf(waterRoom, 1)} L)` : `in ${nf(carrier, 1)} L of the ${nf(waterRoom, 1)} L left`)
     : (id ? 'langsung ke drum yang berputar' : 'straight into the turning drum');
-  const spLine = `${id ? 'Atau plastisizer' : 'Or plasticizer'} <b>+${nf(spML, 0)} mL</b> ${spWhere} · ${id ? 'dosis' : 'dose'} <b>${dose}</b>`;
+  /* The alternative carries its own mixing time: the water line above says
+     1–2 minutes, and a worker who takes the plasticizer route would follow that
+     number. Viscocrete 3115 N wants 5 minutes of wet mixing to give its full
+     water reduction. */
+  const spLine = `${id ? 'Atau plastisizer' : 'Or plasticizer'} <b>+${nf(spML, 0)} mL</b> ${spWhere} · ${id ? 'aduk 5 menit' : 'mix 5 min'} · ${id ? 'dosis' : 'dose'} <b>${dose}</b>`;
   const spOnly = id
     ? `Plastisizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, aduk 5 menit, lalu ukur lagi. Dosis <b>${dose}</b>.`
     : `Plasticizer <b>+${nf(spML, 0)} mL</b> ${spWhere}, mix 5 minutes, then measure again. Dose <b>${dose}</b>.`;
@@ -1249,8 +1253,12 @@ function overlayHTML(v) {
           <input type="number" inputmode="numeric" step="10" min="0" data-live="spActual" value="${nf(S.live ? +S.live.spActual || 0 : 0, 0)}"></label>
       </div>
       <div class="vfine" style="margin:0 0 6px">${id ? 'Ubah kalau yang dituang berbeda, atau isi SP saja dan air 0.' : 'Change it if you poured a different amount, or set water 0 and enter SP only.'}</div>` : ''}
-      ${v.finish ? `<button class="vbtn primary" data-action="vfinish">${id ? 'SELESAI' : 'FINISH BATCH'}</button>` : ''}
-      <button class="vbtn ghost2" data-action="vclose">${v.finish ? (id ? 'LANJUT ADUK' : 'KEEP MIXING') : v.inputs ? (id ? 'OK — ITU YANG MASUK' : 'OK — THAT IS WHAT WENT IN') : (id ? 'MENGERTI' : 'GOT IT')}</button>
+      ${v.ask
+        ? `<button class="vbtn primary" data-action="vcredit">${id ? 'YA — ITU MASUK' : 'YES — IT WENT IN'}</button>
+           <button class="vbtn ghost2" data-action="vclose">${id ? 'TIDAK — HANYA BACA ULANG' : 'NO — JUST A RE-READ'}</button>`
+        : `${v.finish ? `<button class="vbtn primary" data-action="vfinish">${id ? 'SELESAI' : 'FINISH BATCH'}</button>` : ''}
+           <button class="vbtn ghost2" data-action="vclose">${v.finish ? (id ? 'LANJUT ADUK' : 'KEEP MIXING') : v.inputs ? (id ? 'OK — ITU YANG MASUK' : 'OK — THAT IS WHAT WENT IN') : (id ? 'MENGERTI' : 'GOT IT')}</button>`}
+      ${v.note ? `<div class="vfine" style="margin:2px 0 6px">${v.note}</div>` : ''}
       <div class="vfine">${id ? 'air di drum' : 'water in drum'} <b>${nf(v.poured, 1)} L</b> · ${id ? 'batas' : 'ceiling'} <b>${nf(S.live ? S.live.ceilingNet : 0, 1)} L</b></div>
     </div>
   </div>`;
@@ -1280,20 +1288,54 @@ const creditedWater = (L) => {
   return v != null && isFinite(+v) ? Math.max(0, +v) : Math.max(0, +L.nextAdd || 0);
 };
 
+/* "OK — that is what went in" is a commitment, not a dismissal. Credit the
+   water and plasticizer the worker confirmed and reset the fields, so the drum
+   figure and the dose note move on the press itself — and so the next Record
+   cannot credit the same litres a second time. */
+function confirmAdds(L) {
+  const v = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
+  const water = creditedWater(L);
+  if (water > 0) { L.poured += water; L.adds.push({ L: water, slump: v }); }
+  const sp = Math.max(0, +L.spActual || 0);
+  if (sp > 0) { L.spExtra = (+L.spExtra || 0) + sp; L.adds.push({ sp, slump: v }); }
+  if (water > 0 || sp > 0) {
+    L.nextAdd = nextWater(L, v);
+    L.actual = L.nextAdd;      // prefill the next advised amount, as recordSlump does
+    L.spActual = 0;
+    return true;
+  }
+  return false;
+}
+
 function recordSlump() {
   const L = S.live; if (!L) return;
   const v = parseFloat($('#slumpIn').value);
   if (!isFinite(v) || v < 0) { toast(LANG === 'id' ? 'Isi angka slump' : 'Enter a slump value'); return; }
   const last = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
-  /* Pressing Record twice with the same number is a re-read, not a new test:
-     no water is credited and no duplicate reading is stored. */
+  /* Same number as the last reading. Two different things look identical here:
+     a double tap / re-read, and an addition that genuinely did not move the
+     cone. Treating both as a re-read meant water that really went in could
+     never be recorded — the batch then under-counts its own water and reports
+     a w/c (and a strength) better than what is in the drum. That failure is
+     silent, so it is the one to design out.
+     Decide by time: under 25 s nobody poured 1.4 L and mixed it, so it is a
+     re-read. Later than that the worker is the only one who knows, so ask —
+     the answer changes the water accounting. */
   if (last != null && Math.abs(last - v) < 1e-9) {
+    const prev = L.slumps[L.slumps.length - 1];
+    const dt = Date.now() - (+prev.t || 0);
+    const claimedW = creditedWater(L), claimedSP = Math.max(0, +L.spActual || 0);
     L.nextAdd = nextWater(L, v);
-    verdict = { kind: 'warn', head: LANG === 'id' ? 'SLUMP SAMA' : 'SAME READING',
-      num: v + ' cm', unit: '',
-      body: LANG === 'id' ? 'Belum berubah sejak uji terakhir — tidak ada air yang ditambahkan. Aduk lebih lama, lalu ukur lagi.'
-        : 'Unchanged since the last test, so no water was credited. Mix longer, then measure again.',
-      poured: L.poured };
+    if (dt > 25000 && (claimedW > 0.05 || claimedSP > 0)) {
+      verdict = { kind: 'warn', head: LANG === 'id' ? 'SLUMP SAMA' : 'SAME READING',
+        num: `${nf(v, 1)} cm`, unit: '', inputs: true, ask: true, poured: L.poured,
+        body: LANG === 'id'
+          ? `Kerucut belum bergerak sejak uji terakhir, tetapi kolom menyebut <b>${nf(claimedW, 1)} L air</b>${claimedSP > 0 ? ` dan <b>${nf(claimedSP, 0)} mL plastisizer</b>` : ''} masuk. Benar-benar dituang, atau hanya baca ulang?`
+          : `The cone has not moved since the last test, but the fields say <b>${nf(claimedW, 1)} L of water</b>${claimedSP > 0 ? ` and <b>${nf(claimedSP, 0)} mL of plasticizer</b>` : ''} went in. Did you pour that, or was this just a re-read?` };
+    } else {
+      verdict = Object.assign(makeVerdict(L, v), {
+        note: LANG === 'id' ? 'Slump sama — tidak ada yang dicatat.' : 'Same reading — nothing was credited.' });
+    }
     save(); render(); return;
   }
   const water = creditedWater(L);
@@ -1509,7 +1551,31 @@ document.addEventListener('click', (ev) => {
   if (act === 'start') return startBatch();
   if (act === 'slump-rec') return recordSlump();
   if (act === 'slump-finish') return finishBatch();
-  if (act === 'vclose') { verdict = null; return render(); }
+  if (act === 'vcredit') {
+    /* "Yes, it went in" on a re-read: credit it, keep the single reading, then
+       show the next step instead of leaving the worker with a dead card. */
+    if (S.live) {
+      confirmAdds(S.live);
+      const v = S.live.slumps.length ? S.live.slumps[S.live.slumps.length - 1].v : null;
+      verdict = v == null ? null : Object.assign(makeVerdict(S.live, v), {
+        note: LANG === 'id' ? 'Tercatat masuk ke drum.' : 'Recorded as poured.' });
+      save();
+    }
+    return render();
+  }
+  if (act === 'vclose') {
+    if (verdict && verdict.ask && S.live) {
+      /* Declined: nothing went in, so drop the claimed amounts rather than ask
+         again on the next press — and still show what to do next. */
+      S.live.spActual = 0; S.live.actual = S.live.nextAdd;
+      const v = S.live.slumps.length ? S.live.slumps[S.live.slumps.length - 1].v : null;
+      verdict = v == null ? null : Object.assign(makeVerdict(S.live, v), {
+        note: LANG === 'id' ? 'Slump sama — tidak ada yang dicatat.' : 'Same reading — nothing was credited.' });
+      save(); return render();
+    }
+    if (verdict && verdict.inputs && S.live && confirmAdds(S.live)) save();
+    verdict = null; return render();
+  }
   if (act === 'nclose') { notice = null; return render(); }
   if (act === 'vfinish') { verdict = null; return finishBatch(); }
   if (act === 'slump-cancel') { verdict = null; S.live = null; save(); screen = 'Batch'; return render(); }
@@ -1626,7 +1692,12 @@ document.addEventListener('change', (ev) => {
     return;
   }
   if (el.dataset.rerender) { render(); return; }
-  if (el.dataset.live) { render(); return; }
+  /* data-live fields (water poured / SP added) commit on 'input' and change
+     nothing derived, so they must NOT re-render here: the change fires on blur,
+     which is exactly when the worker's thumb is on the button below the field —
+     replacing the DOM at that instant swallows the tap, and the button appears
+     to need two presses. */
+  if (el.dataset.live) { return; }
   if (el.dataset.gf || el.dataset.bind) {
     // full re-render for selects / committed values so derived cards refresh
     if (el.tagName === 'SELECT') render();
