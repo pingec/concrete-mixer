@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.12.1';
+const VERSION = '1.12.2';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -126,7 +126,7 @@ const DEFAULTS = () => ({
   pourTag: '',
   cal: { tare: 2, bucketL: 20, sandWeigh: [36], gravelWeigh: [30], date: new Date().toISOString().slice(0, 10) },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
-  prices: { cement: 64000, sandPerM3: 550000, gravelPerM3: 550000, spPerL: 90000, waterPerM3: 0, rmxPerM3: 1400000 },
+  prices: { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 90000, waterPerM3: 0, rmxPerM3: 1400000 },
   log: [],
   live: null
 });
@@ -192,7 +192,7 @@ function load() {
     // migration: site prices + a starter bucket calibration so bucket counts show on first open.
     // Only blanks are filled — anything already typed by the user is left alone.
     if (!(+d.defaultsV >= 4)) {
-      const P = { cement: 64000, sandPerM3: 550000, gravelPerM3: 550000, spPerL: 90000 };
+      const P = { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 90000 };
       Object.keys(P).forEach((k) => { if (!(+S.prices[k] > 0)) S.prices[k] = P[k]; });
       if (!(+S.cal.tare > 0)) S.cal.tare = 2;
       if (!(+S.cal.bucketL > 0) || Math.abs(+S.cal.bucketL - 12) < 1e-9) S.cal.bucketL = 20;
@@ -200,6 +200,15 @@ function load() {
       if (!Array.isArray(S.cal.gravelWeigh) || !S.cal.gravelWeigh.length) S.cal.gravelWeigh = [30];
       if (!S.cal.date) S.cal.date = new Date().toISOString().slice(0, 10);
       S.defaultsV = 4;
+    }
+    /* Prices: the 5 m3 dump truck is the only one that reaches a Dalung gang, so
+       the per-m3 rate is the 5 m3 one from the current Bali list (pasir cor
+       Rp 1,550,000 / 5, koral 1/2 Rp 1,700,000 / 5). Migrated only where the old
+       default is still sitting there, so a price the user typed is never touched. */
+    if (!(+d.pricesV >= 1)) {
+      if (Math.abs(+(S.prices.sandPerM3 || 0) - 550000) < 1) S.prices.sandPerM3 = 310000;
+      if (Math.abs(+(S.prices.gravelPerM3 || 0) - 550000) < 1) S.prices.gravelPerM3 = 340000;
+      S.pricesV = 1;
     }
     // migration: an open batch is a row ledger now. Rebuild the timeline from the
     // old adds[] — each addition was stored with the reading that followed it.
