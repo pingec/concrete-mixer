@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.11.5';
+const VERSION = '1.11.6';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -416,11 +416,19 @@ const openEntries = new Set();   // diary rows the user expanded
 function renderTabs() {
   const SHORT = { Calibration: 'Calib' };
   const due = cubeDueCount();
+  /* The ADVISE pill is a child of the tab bar, not a separately fixed element.
+     Two fixed elements anchored to the bottom drift apart while Android Chrome
+     collapses its URL bar — pingo: "the advice button sometimes jumps too high".
+     Inside the bar it moves with the bar, so the gap is always the same. */
+  const fab = (screen === 'Slump' && S.live)
+    ? `<button class="fab ${adviceOpen ? 'on' : ''}" data-action="advise">${adviceOpen
+        ? (LANG === 'id' ? 'TUTUP' : 'CLOSE') : (LANG === 'id' ? 'SARAN' : 'ADVISE')}</button>`
+    : '';
   $('#tabs').innerHTML = TABS.map((n) => {
     const live = n === 'Slump' && !S.live;
     return `<button data-nav="${n}" class="${screen === n ? 'active' : ''}" ${live ? 'style="opacity:.5"' : ''}>
       <span class="ico">${ICONS[n]}</span><span>${t(SHORT[n] || n)}</span>${n === 'Diary' && due ? `<span class="badge">${due}</span>` : ''}</button>`;
-  }).join('');
+  }).join('') + fab;
 }
 
 let lastScreen = null;
@@ -871,7 +879,6 @@ function viewSlump() {
     <button class="small wide" style="margin-top:10px" data-action="slump-cancel">${t('Cancel batch')}</button>
   </div>
   <div class="fabgap"></div>
-  <button class="fab ${adviceOpen ? 'on' : ''}" data-action="advise">${adviceOpen ? (id ? 'TUTUP' : 'CLOSE') : (id ? 'SARAN' : 'ADVISE')}</button>
   ${adviceOpen ? `<div class="fabcard">${advice}</div>` : ''}`;
 }
 
