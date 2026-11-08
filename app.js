@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.11.0';
+const VERSION = '1.11.1';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -685,7 +685,7 @@ function addSpRow(L, mL) {
   if (!isFinite(v) || v <= 0) return refuse(LANG === 'id' ? 'Isi mL plastisizernya dulu.' : 'Enter the millilitres first.');
   const cap = capOf(L), now = doseNow(L);
   const addPct = L.Cact > 0 ? (v / 1000) * spDensity() / L.Cact * 100 : 0;
-  if (now + addPct > cap + 1e-9) {
+  if (now + addPct > cap + 0.01) {   // 0.01 % ≈ the granularity of a measured dose
     const roomML = Math.max(0, (cap - now) / 100 * L.Cact / spDensity() * 1000);
     return refuse(LANG === 'id'
       ? `Itu jadi ${nf(now + addPct, 2)}% — batas ${nf(cap, 2)}%. Paling banyak ${nf(roomML, 0)} mL.`
@@ -721,7 +721,7 @@ function editRowValue(L, id, raw) {
     const others = L.spExtra - (+r.mL || 0);
     const cap = capOf(L);
     const total = L.Cact > 0 ? ((others + v) / 1000) * spDensity() / L.Cact * 100 : 0;
-    if (total > cap + 1e-9) return refuse(LANG === 'id'
+    if (total > cap + 0.01) return refuse(LANG === 'id'
       ? `Dosis jadi ${nf(total, 2)}% — batas ${nf(cap, 2)}%.`
       : `That would be ${nf(total, 2)}% — the cap is ${nf(cap, 2)}%.`);
     r.mL = Math.round(v);
@@ -778,7 +778,7 @@ function viewSlump() {
     ? `<div class="note info">${id ? 'Tuang air awal, aduk basah 5 menit, lalu ukur slump.' : 'Pour the start water, wet mix 5 minutes, then measure the slump.'}</div>`
     : `<div class="note ${m.kind}"><b>${m.head}${m.num ? `: ${m.num}` : ''}</b> — ${m.body}
         ${m.alt ? `<br><span class="fine">${m.alt}</span>` : ''}
-        <br><span class="fine">k = ${nf((+S.kPerM3PerCm || 2.4) * L.vol, 2)} L/cm · ${nf(roomLeft, 1)} L ${id ? 'sisa ruang' : 'of room left'} ${id ? 'sebelum batas air' : 'before the ceiling'}</span></div>`);
+        ${m.kind === 'warn' ? `<br><span class="fine">k = ${nf((+S.kPerM3PerCm || 2.4) * L.vol, 2)} L/cm · ${nf(roomLeft, 1)} L ${id ? 'sisa ruang' : 'of room left'} ${id ? 'sebelum batas air' : 'before the ceiling'}</span>` : ''}</div>`);
 
   const rows = L.rows || [];
   const led = rows.length ? rows.map((r) => {
