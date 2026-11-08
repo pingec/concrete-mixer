@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.11.2';
+const VERSION = '1.11.3';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -628,13 +628,13 @@ let adviceOpen = false;  // the ADVISE card
 let echo = null;         // one line of feedback, and where refusals are said
 
 function foldRows(L) {
-  let water = 0, sp = 0; const slumps = [];
+  let water = 0, sp = 0, wAt = 0, sAt = 0; const slumps = [];
   (L.rows || []).forEach((r) => {
     if (r.kind === 'water') water += +r.L || 0;
     else if (r.kind === 'sp') sp += +r.mL || 0;
-    else if (r.kind === 'slump') slumps.push({ v: +r.v || 0, t: +r.t || 0 });
+    else if (r.kind === 'slump') { slumps.push({ v: +r.v || 0, t: +r.t || 0 }); wAt = water; sAt = sp; }
   });
-  return { water: +water.toFixed(4), sp: +sp.toFixed(2), slumps };
+  return { water: +water.toFixed(4), sp: +sp.toFixed(2), slumps, wAt: +wAt.toFixed(4), sAt: +sAt.toFixed(2) };
 }
 
 /* nextWater() and the advice engine were written against L.poured / L.spExtra /
@@ -646,9 +646,14 @@ function syncLedger(L) {
   L.spExtra = f.sp;
   L.slumps = f.slumps;
   L.lastSlump = f.slumps.length ? f.slumps[f.slumps.length - 1].v : null;
+  /* What has gone in since the cone was last read. Until it is read again the
+     effect is unknown, so neither lever may be re-offered — that is what used to
+     put the same 2.0 L back in the field after it had already been poured. */
+  L.sinceWater = L.lastSlump == null ? 0 : Math.max(0, +(L.poured - f.wAt).toFixed(3));
+  L.sinceSp = L.lastSlump == null ? 0 : Math.max(0, +(L.spExtra - f.sAt).toFixed(1));
   L.nextAdd = L.lastSlump == null
     ? Math.max(0, (+L.startWater || 0) - L.poured)
-    : nextWater(L, L.lastSlump);
+    : Math.max(0, nextWater(L, L.lastSlump) - L.sinceWater);
   return f;
 }
 
@@ -679,7 +684,8 @@ function refuse(text) { setEcho('danger', text); render(); }
    engine says next — one line, under the row it belongs to. */
 function afterAdd(L, what) {
   const m = L.lastSlump == null ? null : makeVerdict(L, L.lastSlump);
-  const tail = m ? ` · ${m.head}${m.num ? ': ' + m.num : ''}` : '';
+  const tail = m ? ` · ${m.head}${m.num ? ': ' + m.num : ''}`
+    : ` · ${LANG === 'id' ? 'aduk 5 menit, lalu catat slump' : 'mix 5 minutes, then record the slump'}`;
   setEcho(m && m.kind === 'danger' ? 'danger' : (m && m.kind === 'ok' ? 'ok' : 'warn'),
     `${what} · ${LANG === 'id' ? 'di drum' : 'in drum'} ${nf(L.poured, 1)} / ${nf(L.ceilingNet, 1)} L${tail}`);
 }
@@ -797,7 +803,7 @@ function viewSlump() {
     ? `<div class="note info">${id ? 'Tuang air awal, aduk basah 5 menit, lalu ukur slump.' : 'Pour the start water, wet mix 5 minutes, then measure the slump.'}</div>`
     : `<div class="note ${m.kind}"><b>${m.head}${m.num ? `: ${m.num}` : ''}</b> — ${m.body}
         ${m.alt ? `<br><span class="fine">${m.alt}</span>` : ''}
-        ${m.kind === 'warn' ? `<br><span class="fine">k = ${nf((+S.kPerM3PerCm || 2.4) * L.vol, 2)} L/cm · ${nf(roomLeft, 1)} L ${id ? 'sisa ruang' : 'of room left'} ${id ? 'sebelum batas air' : 'before the ceiling'}</span>` : ''}</div>`);
+        ${m.kind === 'warn' && !m.measure ? `<br><span class="fine">k = ${nf((+S.kPerM3PerCm || 2.4) * L.vol, 2)} L/cm · ${nf(roomLeft, 1)} L ${id ? 'sisa ruang' : 'of room left'} ${id ? 'sebelum batas air' : 'before the ceiling'}</span>` : ''}</div>`);
 
   const rows = L.rows || [];
   const led = rows.length ? rows.map((r) => {
@@ -817,8 +823,11 @@ function viewSlump() {
       <button class="xs" data-action="row-del" data-id="${r.id}">×</button></span></div>`;
   }).join('') : `<div class="fine">${id ? 'Belum ada yang dicatat.' : 'Nothing logged yet.'}</div>`;
 
-  const wPrefill = last == null ? (+L.startWater || 0) : (+L.nextAdd || 0);
-  const spPrefill = Math.round(spStepML(L));
+  /* syncLedger already knows both cases: before the first reading it is what is
+     left of the start water, after it the advice's own addition minus whatever
+     has gone in since that reading. Never re-offer what is already in the drum. */
+  const wPrefill = Math.max(0, +L.nextAdd || 0);
+  const spPrefill = (+L.sinceSp || 0) >= 5 ? 0 : Math.round(spStepML(L));
   const tgtC = Math.round(effTarget(L));
   const chips = [tgtC - 6, tgtC - 4, tgtC - 2, tgtC, tgtC + 2, tgtC + 4].filter((v) => v > 0);
 
@@ -1348,6 +1357,19 @@ const spStepML = (L) => (spStepPct(L) / 100) * (+(L && L.Cact) || 0) / spDensity
    Jayamix 0.48 %) put the working range for these mixes at 0.4–0.6 %. */
 function shortAdvice(L, slump) {
   const id = LANG === 'id';
+  /* An addition already in the drum that has not been measured yet. The advice
+     cannot know what it bought, and repeating the same addition would double it. */
+  const sinceW = Math.max(0, +L.sinceWater || 0), sinceSp = Math.max(0, +L.sinceSp || 0);
+  if (sinceW > 0.05 || sinceSp >= 5) {
+    const what = [sinceW > 0.05 ? `${nf(sinceW, 1)} L ${id ? 'air' : 'water'}` : '',
+      sinceSp >= 5 ? `${nf(sinceSp, 0)} mL ${id ? 'plastisizer' : 'plasticizer'}` : '']
+      .filter(Boolean).join(id ? ' dan ' : ' and ');
+    const mins = sinceSp >= 5 ? (id ? '5 menit' : '5 minutes') : (id ? '1–2 menit' : '1–2 minutes');
+    return { kind: 'warn', head: id ? 'UKUR LAGI' : 'MEASURE AGAIN', num: '', unit: '', inputs: false, measure: true,
+      body: id
+        ? `${what} sudah masuk setelah bacaan ${nf(slump, 1)} cm. Aduk ${mins}, lalu catat slump baru — jangan tambah lagi sebelum diukur.`
+        : `${what} went in after the ${nf(slump, 1)} cm reading. Mix ${mins}, then record a new slump — do not add again before measuring.` };
+  }
   const waterRoom = Math.max(0, L.ceilingNet - L.poured);
   const add = nextWater(L, slump);
   const spML = spStepML(L);
