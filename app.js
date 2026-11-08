@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.11.3';
+const VERSION = '1.11.4';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -839,8 +839,6 @@ function viewSlump() {
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span>${nf(L.ceilingNet, 1)}</span><span class="unit">L</span></span></div>
     ${infoNote('ceil')}
     <div class="fine" style="margin-top:6px">${t('Superplasticizer')} <b>${nf(dose, 2)}%</b> ${id ? 'dari' : 'of'} ${nf(cap, 2)}% · w/c <b>${nf(wcNow, 3)}</b> · ${nf(L.vol, 3)} m³</div>
-    <button class="dark wide" style="margin-top:10px" data-action="advise">${adviceOpen ? (id ? 'SEMBUNYIKAN SARAN' : 'HIDE ADVICE') : (id ? 'SARAN — APA YANG DILAKUKAN' : 'ADVISE — WHAT TO DO NOW')}</button>
-    ${advice}
   </div>
 
   <div class="card">
@@ -869,7 +867,10 @@ function viewSlump() {
       <button class="small" data-action="slump-note">${t('Notes')}</button>
     </div>
     <button class="small wide" style="margin-top:10px" data-action="slump-cancel">${t('Cancel batch')}</button>
-  </div>`;
+  </div>
+  <div class="fabgap"></div>
+  <button class="fab ${adviceOpen ? 'on' : ''}" data-action="advise">${adviceOpen ? (id ? 'TUTUP' : 'CLOSE') : (id ? 'SARAN' : 'ADVISE')}</button>
+  ${adviceOpen ? `<div class="fabcard">${advice}</div>` : ''}`;
 }
 
 /* ---- Diary ---- */

@@ -304,3 +304,18 @@ button.xs.neutral{color:var(--ink)}
 button.xs.ok{color:var(--ok);border-color:var(--ok)}
 @media (max-width:380px){.lrow .lt{flex:0 0 38px;font-size:11px}.lrow .ll{font-size:14px}}
 .lrow .lu{flex:0 0 auto;font-size:12px;color:var(--muted);font-weight:600}
+
+/* ---- floating advice button (Slump) ------------------------------------- */
+.fabgap{height:92px}
+.fab{
+  position:fixed;right:14px;bottom:calc(66px + env(safe-area-inset-bottom) + 14px);z-index:29;
+  min-height:52px;padding:12px 22px;border-radius:999px;border:none;
+  background:var(--ink);color:#fff;font-weight:750;font-size:15px;letter-spacing:.3px;
+  box-shadow:0 8px 22px rgba(16,20,24,.3);
+}
+.fab.on{background:var(--muted)}
+.fabcard{
+  position:fixed;right:12px;left:12px;top:calc(66px + env(safe-area-inset-top));
+  z-index:29;max-width:420px;margin-left:auto;max-height:60vh;overflow:auto;
+}
+.fabcard .note{margin:0;box-shadow:0 12px 34px rgba(16,20,24,.22)}
