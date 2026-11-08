@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.10.4';
+const VERSION = '1.11.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -71,7 +71,9 @@ const ID = {
   'Staging': 'Persiapan', 'Staged': 'Siap', 'Slump test': 'Uji slump',
   'Buffer': 'Cadangan',
   'Plasticizer only': 'Plastisizer saja', 'Both at max': 'Air dan SP di batas',
-  'SP max': 'Maks SP', 'Default max dose': 'Dosis maks awal'
+  'SP max': 'Maks SP', 'Default max dose': 'Dosis maks awal',
+  'Superplasticizer': 'Superplastisizer', 'In the drum': 'Di drum',
+  'Advise': 'Saran', 'Add': 'Tambah'
 };
 
 let LANG = 'en';
@@ -198,6 +200,22 @@ function load() {
       if (!Array.isArray(S.cal.gravelWeigh) || !S.cal.gravelWeigh.length) S.cal.gravelWeigh = [30];
       if (!S.cal.date) S.cal.date = new Date().toISOString().slice(0, 10);
       S.defaultsV = 4;
+    }
+    // migration: an open batch is a row ledger now. Rebuild the timeline from the
+    // old adds[] — each addition was stored with the reading that followed it.
+    if (S.live && !Array.isArray(S.live.rows)) {
+      const sl = Array.isArray(S.live.slumps) ? S.live.slumps : [];
+      const ad = Array.isArray(S.live.adds) ? S.live.adds : [];
+      const t0 = +S.live.ts || Date.now();
+      const rows = [];
+      sl.forEach((x, i) => {
+        const a = ad[i];
+        if (a && +a.L > 0) rows.push({ id: 'm' + i + 'w', t: (+x.t || t0 + i * 60000) - 2000, kind: 'water', L: +a.L });
+        if (a && +a.sp > 0) rows.push({ id: 'm' + i + 's', t: (+x.t || t0 + i * 60000) - 1000, kind: 'sp', mL: +a.sp });
+        rows.push({ id: 'm' + i, t: +x.t || t0 + i * 60000, kind: 'slump', v: +x.v });
+      });
+      S.live.rows = rows;
+      syncLedger(S.live);
     }
     // persist migration results so they do not re-run on every load
     if (d.defaultsV !== S.defaultsV || d.spUnitV2 !== S.spUnitV2 || d.wcTrimV2 !== S.wcTrimV2 || d.spCapV1 !== S.spCapV1) save();
@@ -391,7 +409,6 @@ const TABS = ['Batch', 'Slump', 'Diary', 'Grades', 'Calibration', 'Cost', 'Setti
 const ICONS = { Batch: '🧱', Slump: '📏', Diary: '📖', Grades: '📋', Calibration: '⚖️', Cost: '💰', Settings: '⚙️' };
 let screen = 'Batch';
 let stageOpen = false;   // staging checklist expanded after the first slump reading
-let verdict = null;      // full-screen reaction to the last Record slump press
 let notice = null;       // full-screen result of an incremental batch import
 const openGrades = new Set();
 const openEntries = new Set();   // diary rows the user expanded
@@ -413,7 +430,7 @@ function render() {
   $('#ver').textContent = 'v' + VERSION;
   renderTabs();
   const map = { Batch: viewBatch, Slump: viewSlump, Diary: viewDiary, Grades: viewGrades, Calibration: viewCalib, Cost: viewCost, Settings: viewSettings, Tips: viewTips };
-  $('#main').innerHTML = (map[screen] || viewBatch)() + (verdict ? overlayHTML(verdict) : '') + (notice ? noticeHTML(notice) : '');
+  $('#main').innerHTML = (map[screen] || viewBatch)() + (notice ? noticeHTML(notice) : '');
   if (screen === 'Batch') syncBatch();
   window.scrollTo({ top: 0 });
 }
@@ -577,6 +594,156 @@ function stageSteps(L) {
   return out;
 }
 
+
+/* ---- the ledger ----------------------------------------------------------
+   Every event in the drum is one row: a water addition, a plasticizer
+   addition, or a slump reading. Every total is a FOLD of those rows, never a
+   stored field. That is the whole design: a typo is an edit, a mistake is a
+   delete, and the water, w/c, strength, advice and diary record all recompute
+   from what is left. It is also why the old double-credit / re-read guards are
+   gone — a duplicate entry is now a visible row you remove, not an invisible
+   credit nobody can see. */
+const newRowId = () => 'r' + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36);
+let rowEdit = null;      // ledger row currently open for editing
+let adviceOpen = false;  // the ADVISE card
+let echo = null;         // one line of feedback, and where refusals are said
+
+function foldRows(L) {
+  let water = 0, sp = 0; const slumps = [];
+  (L.rows || []).forEach((r) => {
+    if (r.kind === 'water') water += +r.L || 0;
+    else if (r.kind === 'sp') sp += +r.mL || 0;
+    else if (r.kind === 'slump') slumps.push({ v: +r.v || 0, t: +r.t || 0 });
+  });
+  return { water: +water.toFixed(4), sp: +sp.toFixed(2), slumps };
+}
+
+/* nextWater() and the advice engine were written against L.poured / L.spExtra /
+   L.slumps, so the fold feeds those same names instead of rewriting the maths.
+   They are caches: nothing writes them except this function. */
+function syncLedger(L) {
+  const f = foldRows(L);
+  L.poured = f.water;
+  L.spExtra = f.sp;
+  L.slumps = f.slumps;
+  L.lastSlump = f.slumps.length ? f.slumps[f.slumps.length - 1].v : null;
+  L.nextAdd = L.lastSlump == null
+    ? Math.max(0, (+L.startWater || 0) - L.poured)
+    : nextWater(L, L.lastSlump);
+  return f;
+}
+
+/* The older diary/CSV shape: each addition labelled with the reading that
+   followed it. Kept so exports and pre-ledger entries still read the same. */
+function rowsToAdds(rows) {
+  const out = [];
+  (rows || []).forEach((r) => {
+    if (r.kind === 'water') out.push({ L: +r.L, slump: null });
+    else if (r.kind === 'sp') out.push({ sp: +r.mL, slump: null });
+    else if (r.kind === 'slump') out.forEach((a) => { if (a.slump == null) a.slump = +r.v; });
+  });
+  return out;
+}
+
+const rowText = (r) => r.kind === 'water'
+  ? `+${nf(r.L, +r.L.toFixed(1) === +r.L ? 1 : 2)} L ${LANG === 'id' ? 'air' : 'water'}`
+  : r.kind === 'sp'
+    ? `+${nf(r.mL, 0)} mL ${LANG === 'id' ? 'plastisizer' : 'plasticizer'}`
+    : `${nf(r.v, 1)} cm`;
+const hhmm = (t) => new Date(t).toLocaleTimeString(LANG === 'id' ? 'id-ID' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+
+function setEcho(kind, text) { echo = { kind, text, t: Date.now() }; }
+/* A refusal is the one result that must reach the screen: say it, and repaint. */
+function refuse(text) { setEcho('danger', text); render(); }
+
+/* Feedback after an action: what went in, where the drum stands, and what the
+   engine says next — one line, under the row it belongs to. */
+function afterAdd(L, what) {
+  const m = L.lastSlump == null ? null : makeVerdict(L, L.lastSlump);
+  const tail = m ? ` · ${m.head}${m.num ? ': ' + m.num : ''}` : '';
+  setEcho(m && m.kind === 'danger' ? 'danger' : (m && m.kind === 'ok' ? 'ok' : 'warn'),
+    `${what} · ${LANG === 'id' ? 'di drum' : 'in drum'} ${nf(L.poured, 1)} / ${nf(L.ceilingNet, 1)} L${tail}`);
+}
+
+function addWaterRow(L, litres) {
+  const v = +litres;
+  if (!isFinite(v) || v <= 0) return refuse(LANG === 'id' ? 'Isi jumlah airnya dulu.' : 'Enter the litres first.');
+  const total = L.poured + v;
+  if (total > L.ceilingNet + 1e-6) {
+    const room = Math.max(0, L.ceilingNet - L.poured);
+    return refuse(LANG === 'id'
+      ? `Itu jadi ${nf(total, 1)} L — batas ${nf(L.ceilingNet, 1)} L. Paling banyak ${nf(room, 1)} L.`
+      : `That would be ${nf(total, 1)} L — the ceiling is ${nf(L.ceilingNet, 1)} L. At most ${nf(room, 1)} L.`);
+  }
+  L.rows.push({ id: newRowId(), t: Date.now(), kind: 'water', L: +v.toFixed(3) });
+  syncLedger(L); afterAdd(L, `+${nf(v, +v.toFixed(1) === +v ? 1 : 2)} L ${LANG === 'id' ? 'air' : 'water'}`);
+  save(); render();
+}
+
+function addSpRow(L, mL) {
+  const v = +mL;
+  if (!isFinite(v) || v <= 0) return refuse(LANG === 'id' ? 'Isi mL plastisizernya dulu.' : 'Enter the millilitres first.');
+  const cap = capOf(L), now = doseNow(L);
+  const addPct = L.Cact > 0 ? (v / 1000) * spDensity() / L.Cact * 100 : 0;
+  if (now + addPct > cap + 1e-9) {
+    const roomML = Math.max(0, (cap - now) / 100 * L.Cact / spDensity() * 1000);
+    return refuse(LANG === 'id'
+      ? `Itu jadi ${nf(now + addPct, 2)}% — batas ${nf(cap, 2)}%. Paling banyak ${nf(roomML, 0)} mL.`
+      : `That would be ${nf(now + addPct, 2)}% — the cap is ${nf(cap, 2)}%. At most ${nf(roomML, 0)} mL.`);
+  }
+  L.rows.push({ id: newRowId(), t: Date.now(), kind: 'sp', mL: Math.round(v) });
+  syncLedger(L); afterAdd(L, `+${nf(v, 0)} mL ${LANG === 'id' ? 'plastisizer' : 'plasticizer'} · ${LANG === 'id' ? 'dosis' : 'dose'} ${nf(doseNow(L), 2)}%`);
+  save(); render();
+}
+
+function addSlumpRow(L, cm) {
+  const v = +cm;
+  if (!isFinite(v) || v < 0 || v > 30) return refuse(LANG === 'id' ? 'Isi angka slump 0–30 cm.' : 'Enter a slump between 0 and 30 cm.');
+  L.rows.push({ id: newRowId(), t: Date.now(), kind: 'slump', v: +v });
+  syncLedger(L);
+  const m = makeVerdict(L, L.lastSlump);
+  setEcho(m.kind === 'ok' ? 'ok' : (m.kind === 'danger' ? 'danger' : 'warn'), `${nf(v, 1)} cm · ${m.head}${m.num ? ': ' + m.num : ''}`);
+  save(); render();
+}
+
+function editRowValue(L, id, raw) {
+  const r = (L.rows || []).find((x) => x.id === id);
+  if (!r) return;
+  const v = +raw;
+  if (!isFinite(v) || v < 0) return refuse(LANG === 'id' ? 'Angka tidak terbaca.' : 'That is not a number.');
+  if (r.kind === 'water') {
+    const others = L.poured - (+r.L || 0);
+    if (others + v > L.ceilingNet + 1e-6) return refuse(LANG === 'id'
+      ? `Total jadi ${nf(others + v, 1)} L — batas ${nf(L.ceilingNet, 1)} L.`
+      : `That would total ${nf(others + v, 1)} L — the ceiling is ${nf(L.ceilingNet, 1)} L.`);
+    r.L = +v.toFixed(3);
+  } else if (r.kind === 'sp') {
+    const others = L.spExtra - (+r.mL || 0);
+    const cap = capOf(L);
+    const total = L.Cact > 0 ? ((others + v) / 1000) * spDensity() / L.Cact * 100 : 0;
+    if (total > cap + 1e-9) return refuse(LANG === 'id'
+      ? `Dosis jadi ${nf(total, 2)}% — batas ${nf(cap, 2)}%.`
+      : `That would be ${nf(total, 2)}% — the cap is ${nf(cap, 2)}%.`);
+    r.mL = Math.round(v);
+  } else {
+    if (v > 30) return refuse(LANG === 'id' ? 'Slump 0–30 cm.' : 'Slump between 0 and 30 cm.');
+    r.v = +v;
+  }
+  rowEdit = null; syncLedger(L);
+  setEcho('ok', `${rowText(r)} · ${LANG === 'id' ? 'diperbarui' : 'updated'}`);
+  save(); render();
+}
+
+function delRow(L, id) {
+  const r = (L.rows || []).find((x) => x.id === id);
+  if (!r) return;
+  if (!confirm(`${rowText(r)} — ${LANG === 'id' ? 'hapus baris ini?' : 'delete this row?'}`)) return;
+  L.rows = L.rows.filter((x) => x.id !== id);
+  rowEdit = null; syncLedger(L);
+  setEcho('ok', `${rowText(r)} · ${LANG === 'id' ? 'dihapus' : 'deleted'} · ${LANG === 'id' ? 'di drum' : 'in drum'} ${nf(L.poured, 1)} L`);
+  save(); render();
+}
+
 function viewSlump() {
   if (!S.live) {
     return `<div class="card center"><h2>${t('Slump')}</h2>
@@ -584,46 +751,14 @@ function viewSlump() {
       <button class="primary wide" data-nav="Batch">${t('Batch')} →</button></div>`;
   }
   const L = S.live;
-  const last = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
-  const lo = effTarget(L) - effBand(L), hi = effTarget(L) + effBand(L);
-  const inBand = last != null && last >= lo && last <= hi;
-  const overWet = last != null && last > hi;
+  syncLedger(L);
+  const id = LANG === 'id';
+  const last = L.lastSlump;
+  const m = last == null ? null : makeVerdict(L, last);
+  const cap = capOf(L), dose = doseNow(L);
+  const wcNow = L.Cact > 0 ? (L.poured + (L.creditS || 0) + (L.creditG || 0)) / L.Cact : 0;
 
-  let guidance = '';
-  if (last == null) {
-    guidance = `<div class="note info">${LANG === 'id' ? 'Tuang air awal, aduk basah 5 menit, lalu ukur slump.' : 'Pour the start water, wet mix 5 minutes, then measure the slump.'}</div>`;
-  } else if (inBand) {
-    guidance = `<div class="note ok"><b>${t('Ready')}</b> — ${LANG === 'id' ? 'slump dalam target. Tekan Selesai.' : 'slump is in the band. Press Finish batch.'}</div>`;
-  } else if (overWet) {
-    /* Above the band. Two causes: more water in the drum than the ceiling allows,
-       or the aggregate carried more free water than we credited. If the drum is
-       still under the ceiling, estimate the surplus from the slump overshoot
-       (k L/cm) so the advice is never "+0.0 kg". */
-    const overshoot = Math.max(0, last - hi) * (+S.kPerM3PerCm || 2.4) * L.vol;
-    const excess = Math.max(0, L.poured - L.ceilingNet, overshoot);
-    const dC = excess > 0 ? excess / L.wc : 0;
-    guidance = `<div class="note danger"><b>${LANG === 'id' ? 'Terlalu basah' : 'Too wet'}</b> — ${LANG === 'id' ? 'jangan tambah air. Tambah semen + agregat proporsional:' : 'no more water. Add cement + aggregate proportionally:'}
-      <br><b>+${nf(dC, 1)} kg ${t('Cement')} · +${nf(dC * L.g.sand, 1)} kg ${t('Sand')} · +${nf(dC * L.g.gravel, 1)} kg ${t('Gravel')}</b>
-      <br><span class="fine">${LANG === 'id' ? 'Volume campuran bertambah — cek kapasitas molen.' : 'Batch volume grows — check mixer capacity.'}</span></div>`;
-  } else {
-    const a = shortAdvice(L, last);
-    const kL = (+S.kPerM3PerCm || 2.4) * L.vol;
-    const left = Math.max(0, L.ceilingNet - L.poured - nextWater(L, last));
-    guidance = `<div class="note ${a.kind}"><b>${a.head}${a.num ? `: ${a.num}` : ''}</b> — ${a.body}
-      ${a.alt ? `<br><span class="fine">${a.alt}</span>` : ''}
-      ${a.inputs ? `<br><span class="fine">k = ${nf(kL, 2)} L/cm ${LANG === 'id' ? 'untuk campuran ini' : 'for this batch'} · ${t('Remaining')} ${nf(left, 1)} L</span>` : ''}</div>`;
-  }
-
-  const adds = L.adds.length
-    ? `<details><summary>${t('Water used')} (${nf(L.poured, 1)} L)</summary><div class="fine mono">${L.adds.map((a, i) => `#${i + 1} ${a.sp ? '+' + nf(a.sp, 0) + ' mL SP' : '+' + nf(a.L, 1) + ' L'} → ${a.slump} cm`).join('<br>')}</div></details>`
-    : '';
-
-  const chip = (v) => `<button data-chip="${v}" class="${last === v ? 'on' : ''}">${v}</button>`;
-  /* Quick-pick slumps follow the batch target (16 ± 2 needs 18 on the list too). */
-  const tgtC = Math.round(effTarget(L));
-  const chips = [tgtC - 6, tgtC - 4, tgtC - 2, tgtC, tgtC + 2, tgtC + 4].filter((v) => v > 0);
-
-  /* Staging checklist — open until the first slump reading, then one quiet line. */
+  /* Staging checklist — open until the first reading, then one quiet line. */
   const steps = stageSteps(L);
   const done = steps.map((_, i) => !!(L.steps && L.steps[i]));
   const doneN = done.filter(Boolean).length;
@@ -636,44 +771,76 @@ function viewSlump() {
     : `<button class="small wide" data-stage-toggle="1">${t('Staged')} ${doneN}/${steps.length}${doneN === steps.length ? ' ✓' : ''} ${stageOpen ? '▾' : '▸'}</button>
        ${stageOpen ? `<div class="stage">${steps.map(stageRow).join('')}</div>` : ''}`;
 
+  /* Advice is a reading of the ledger, on demand — never a card in the face. */
+  const nextW = last == null ? 0 : nextWater(L, last);
+  const roomLeft = Math.max(0, L.ceilingNet - L.poured);
+  const advice = !adviceOpen ? '' : (m == null
+    ? `<div class="note info">${id ? 'Tuang air awal, aduk basah 5 menit, lalu ukur slump.' : 'Pour the start water, wet mix 5 minutes, then measure the slump.'}</div>`
+    : `<div class="note ${m.kind}"><b>${m.head}${m.num ? `: ${m.num}` : ''}</b> — ${m.body}
+        ${m.alt ? `<br><span class="fine">${m.alt}</span>` : ''}
+        <br><span class="fine">k = ${nf((+S.kPerM3PerCm || 2.4) * L.vol, 2)} L/cm · ${nf(roomLeft, 1)} L ${id ? 'sisa ruang' : 'of room left'} ${id ? 'sebelum batas air' : 'before the ceiling'}</span></div>`);
+
+  const rows = L.rows || [];
+  const led = rows.length ? rows.map((r) => {
+    if (rowEdit === r.id) {
+      const val = r.kind === 'water' ? r.L : r.kind === 'sp' ? r.mL : r.v;
+      return `<div class="lrow">
+        <span class="lt">${hhmm(r.t)}</span>
+        <input type="number" inputmode="decimal" step="${r.kind === 'sp' ? 10 : 0.1}" min="0" id="rowIn" value="${val}">
+        <span class="lu">${r.kind === 'water' ? 'L' : r.kind === 'sp' ? 'mL' : 'cm'}</span>
+        <span class="lacts"><button class="xs ok" data-action="row-save" data-id="${r.id}">✓</button>
+        <button class="xs" data-action="row-cancel">×</button></span></div>`;
+    }
+    return `<div class="lrow${r.kind === 'slump' ? ' sl' : ''}">
+      <span class="lt">${hhmm(r.t)}</span>
+      <span class="ll">${rowText(r)}</span>
+      <span class="lacts"><button class="xs neutral" data-action="row-edit" data-id="${r.id}">✎</button>
+      <button class="xs" data-action="row-del" data-id="${r.id}">×</button></span></div>`;
+  }).join('') : `<div class="fine">${id ? 'Belum ada yang dicatat.' : 'Nothing logged yet.'}</div>`;
+
+  const wPrefill = last == null ? (+L.startWater || 0) : (+L.nextAdd || 0);
+  const spPrefill = Math.round(spStepML(L));
+  const tgtC = Math.round(effTarget(L));
+  const chips = [tgtC - 6, tgtC - 4, tgtC - 2, tgtC, tgtC + 2, tgtC + 4].filter((v) => v > 0);
+
   return `
   <div class="card">
     <h2>${esc(L.gradeName)} · ${nf(L.Cact, 0)} kg ${t('Cement').toLowerCase()} <span class="sub">${t('target')} ${effTarget(L)} ± ${effBand(L)} cm</span></h2>
     ${stageBlock}
-    ${L.slumps.length === 0 ? '' : `<div class="stat hero" style="border-bottom:none;padding-top:0"><span class="k">${t('Pour now')}</span><span class="v"><span>${nf(L.nextAdd || 0, 1)}</span><span class="unit">L</span></span></div>
-    <div style="margin-top:2px">${guidance}</div>`}
-    <div class="stat" style="margin-top:10px"><span class="k">${t('Water')} ${LANG === 'id' ? 'di drum' : 'in drum'}</span><span class="v sm">${nf(L.poured, 1)} L</span></div>
+    <div class="stat"><span class="k">${t('Water')} ${id ? 'di drum' : 'in drum'}</span><span class="v sm">${nf(L.poured, 1)} L</span></div>
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span>${nf(L.ceilingNet, 1)}</span><span class="unit">L</span></span></div>
     ${infoNote('ceil')}
-    <div class="addrow">
-      <label class="field" style="margin:0"><span class="lbl">${LANG === 'id' ? 'Air dituang' : 'Water poured'} (L)</span>
-        <input type="number" inputmode="decimal" step="0.1" min="0" data-live="actual" value="${nf(L.actual != null ? +L.actual : (L.nextAdd || 0), 1)}"></label>
-      <label class="field" style="margin:0"><span class="lbl">${LANG === 'id' ? 'SP ditambah' : 'SP added'} (mL)</span>
-        <input type="number" inputmode="numeric" step="10" min="0" data-live="spActual" value="${nf(+L.spActual || 0, 0)}"></label>
-    </div>
-    <div class="fine" style="margin-top:6px">${LANG === 'id'
-      ? 'Bawaannya sesuai angka di atas — ubah kalau yang dituang berbeda, atau kalau memakai plastisizer sebagai gantinya.'
-      : 'Defaults to the amount above — change it if you poured a different amount, or used plasticizer instead.'}</div>
-    ${(+L.spExtra > 0) ? (() => {
-      const tot = (L.spL + (+L.spExtra || 0) / 1000);
-      const pctSp = L.Cact > 0 ? tot * spDensity() / L.Cact * 100 : 0;
-      const over = pctSp > capOf(L) + 1e-9;
-      return `<div class="note ${over ? 'danger' : 'info'}">${LANG === 'id' ? 'SP tambahan' : 'Extra SP'} <b>+${nf(+L.spExtra, 0)} mL</b> · ${LANG === 'id' ? 'total dosis' : 'total dose'} <b>${nf(pctSp, 2)}%</b> ${LANG === 'id' ? 'dari semen' : 'of cement'}${over ? ` — <b>${LANG === 'id' ? 'di atas batas' : 'above the cap'} ${nf(capOf(L), 2)}%</b>` : ''}</div>`;
-    })() : ''}
+    <div class="fine" style="margin-top:6px">${t('Superplasticizer')} <b>${nf(dose, 2)}%</b> ${id ? 'dari' : 'of'} ${nf(cap, 2)}% · w/c <b>${nf(wcNow, 3)}</b> · ${nf(L.vol, 3)} m³</div>
+    <button class="dark wide" style="margin-top:10px" data-action="advise">${adviceOpen ? (id ? 'SEMBUNYIKAN SARAN' : 'HIDE ADVICE') : (id ? 'SARAN — APA YANG DILAKUKAN' : 'ADVISE — WHAT TO DO NOW')}</button>
+    ${advice}
   </div>
 
   <div class="card">
-    <h2>${t('Record slump')}</h2>
-    <label class="field" style="margin-bottom:0"><span class="lbl">${t('Slump')} (cm)</span>
-      <input type="number" inputmode="decimal" step="0.5" min="0" max="30" id="slumpIn" value="${last == null ? '' : last}" placeholder="—" style="font-size:30px"></label>
-    <div class="quick" style="grid-template-columns:repeat(3,1fr)">${chips.map(chip).join('')}</div>
-    <button class="primary wide" data-action="slump-rec">${t('Record slump')}</button>
-    <div class="row" style="margin-top:10px">
+    <h2>${t('In the drum')} <span class="sub">${rows.length}</span></h2>
+    ${echo ? `<div class="note ${echo.kind}" id="echo">${echo.text}</div>` : ''}
+    <div class="led">${led}</div>
+    <hr class="sep">
+    <div class="addrow">
+      <label class="field" style="margin:0"><span class="lbl">${t('Water')} (L)</span>
+        <input type="number" inputmode="decimal" step="0.1" min="0" id="wIn" value="${+wPrefill.toFixed(1)}"></label>
+      <button class="dark" data-action="add-water">+ ${t('Add')}</button>
+    </div>
+    <div class="addrow" style="margin-top:8px">
+      <label class="field" style="margin:0"><span class="lbl">${t('Superplasticizer')} (mL)</span>
+        <input type="number" inputmode="numeric" step="10" min="0" id="spIn" value="${spPrefill}"></label>
+      <button class="dark" data-action="add-sp">+ ${t('Add')}</button>
+    </div>
+    <div class="addrow" style="margin-top:8px">
+      <label class="field" style="margin:0"><span class="lbl">${t('Slump')} (cm)</span>
+        <input type="number" inputmode="decimal" step="0.5" min="0" max="30" id="slIn" placeholder="—"></label>
+      <button class="primary" data-action="add-slump">${id ? 'CATAT' : 'RECORD'}</button>
+    </div>
+    <div class="quick" style="grid-template-columns:repeat(3,1fr);margin-top:8px">${chips.map((v) => `<button data-chip="${v}" class="${last === v ? 'on' : ''}">${v}</button>`).join('')}</div>
+    <div class="row" style="margin-top:12px">
       <button class="dark" data-action="slump-finish">${t('Finish batch')}</button>
       <button class="small" data-action="slump-note">${t('Notes')}</button>
     </div>
     <button class="small wide" style="margin-top:10px" data-action="slump-cancel">${t('Cancel batch')}</button>
-    <div style="margin-top:12px">${adds}</div>
   </div>`;
 }
 
@@ -747,6 +914,7 @@ function viewDiary() {
         <div class="m">${new Date(e.ts).toLocaleString()}${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}</div>
         <div class="m">${t('Sand')} ${nf(e.wetSand, 1)} kg${e.bucketSand ? ' (' + e.bucketSand + ' ' + t('buckets') + ')' : ''} · ${t('Gravel')} ${nf(e.wetGrav, 1)} kg${e.bucketGrav ? ' (' + e.bucketGrav + ' ' + t('buckets') + ')' : ''}${e.mS != null ? ' · ' + t('Moisture').toLowerCase() + ' ' + (e.mS * 100).toFixed(1) + '%' : ''}</div>
         <div class="m">${strengthLabel(e.strengthEst, e.source)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
+        ${Array.isArray(e.rows) && e.rows.length ? `<div class="led" style="margin-top:8px">${e.rows.map((r) => `<div class="lrow"><span class="lt">${hhmm(r.t)}</span><span class="ll">${rowText(r)}</span></div>`).join('')}</div>` : ''}
         <div class="row" style="margin-top:8px">
           <label class="field" style="margin:0"><span class="lbl">${t('7 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d7 ?? ''}" data-cube="d7" data-id="${e.id}"></label>
           <label class="field" style="margin:0"><span class="lbl">${t('28 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d28 ?? ''}" data-cube="d28" data-id="${e.id}"></label>
@@ -1098,9 +1266,9 @@ function startBatch() {
     waterCorrected: s.waterCorrected, ceilingNet: s.ceilingNet, vol: s.vol, spL: s.spL,
     mS: s.mS, mG: s.mG, creditS: s.creditS, creditG: s.creditG,
     bucketSand: s.bucketSand, bucketGrav: s.bucketGrav, bS: s.bS, bG: s.bG,
-    poured: 0, nextAdd: s.startWater, adds: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0,
+    poured: 0, nextAdd: s.startWater, rows: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0,
     pour: String(S.pourTag || '').trim(), steps: [], startWater: s.startWater,
-    actual: s.startWater, spActual: 0, spExtra: 0,
+    spExtra: 0, lastSlump: null,
     target: (+s.g.tslump > 0 ? +s.g.tslump : +S.targetSlump), band: +S.band
   };
   save(); screen = 'Slump'; render();
@@ -1117,8 +1285,9 @@ function nextWater(L, slump) {
   return add < 0.1 ? 0 : add;
 }
 
-/* The verdict is the answer to "I just pressed Record" — shown full screen so it
-   cannot be missed at the drum. Same thresholds as the inline guidance. */
+/* makeVerdict is the advice engine: one object describing what the batch needs
+   next. The ADVISE card and the one-line echo both render it, so they cannot
+   disagree with each other. */
 function wetExcess(L, slump) {
   const hi = effTarget(L) + effBand(L);
   const overshoot = Math.max(0, slump - hi) * (+S.kPerM3PerCm || 2.4) * L.vol;
@@ -1128,9 +1297,8 @@ function wetExcess(L, slump) {
 /* ---- superplasticizer headroom -------------------------------------------
    The cap is a ceiling on the TOTAL dose, so the room left depends on what is
    already in the drum: the recipe's own dose plus everything logged as extra.
-   One owner for "how much plasticizer next" — the inline card, the verdict and
-   the recorder all read it. Two copies drift, and then the big card disagrees
-   with the note under it. */
+   One owner for "how much plasticizer next" — the advice card and the echo line
+   both read it, and two copies would drift. */
 const capOf = (L) => spCapOfG((L && L.g) || grade());
 function doseNow(L) {
   const C = +(L && L.Cact) || 0;
@@ -1232,39 +1400,12 @@ function makeVerdict(L, slump) {
       body: id ? `Slump dalam target ${effTarget(L)} ± ${effBand(L)} cm. Selesaikan campuran ini.` : `Slump is inside the band ${effTarget(L)} ± ${effBand(L)} cm. Finish this batch.`,
       finish: true });
   }
-  /* Short of the band: one owner decides, so the verdict and the inline card
+  /* Short of the band: one owner decides, so the advise card and the echo
      can never recommend different levers. */
   return Object.assign(base, shortAdvice(L, slump));
 }
 
-function overlayHTML(v) {
-  const id = LANG === 'id';
-  return `<div class="vwrap" role="alertdialog" aria-live="assertive">
-    <div class="vcard v-${v.kind}">
-      <div class="vhead">${v.head}</div>
-      ${v.num ? `<div class="vnum">${v.num}</div>` : ''}
-      ${v.unit ? `<div class="vunit">${v.unit}</div>` : ''}
-      <div class="vbody">${v.body}</div>
-      ${v.alt ? `<div class="vbody" style="margin-top:8px">${v.alt}</div>` : ''}
-      ${v.inputs ? `<div class="addrow" style="margin:0 0 8px">
-        <label class="field" style="margin:0"><span class="lbl">${id ? 'Air dituang' : 'Water poured'} (L)</span>
-          <input type="number" inputmode="decimal" step="0.1" min="0" data-live="actual" value="${nf(S.live && S.live.actual != null ? +S.live.actual : 0, 1)}"></label>
-        <label class="field" style="margin:0"><span class="lbl">${id ? 'SP ditambah' : 'SP added'} (mL)</span>
-          <input type="number" inputmode="numeric" step="10" min="0" data-live="spActual" value="${nf(S.live ? +S.live.spActual || 0 : 0, 0)}"></label>
-      </div>
-      <div class="vfine" style="margin:0 0 6px">${id ? 'Ubah kalau yang dituang berbeda, atau isi SP saja dan air 0.' : 'Change it if you poured a different amount, or set water 0 and enter SP only.'}</div>` : ''}
-      ${v.ask
-        ? `<button class="vbtn primary" data-action="vcredit">${id ? 'YA — ITU MASUK' : 'YES — IT WENT IN'}</button>
-           <button class="vbtn ghost2" data-action="vclose">${id ? 'TIDAK — HANYA BACA ULANG' : 'NO — JUST A RE-READ'}</button>`
-        : `${v.finish ? `<button class="vbtn primary" data-action="vfinish">${id ? 'SELESAI' : 'FINISH BATCH'}</button>` : ''}
-           <button class="vbtn ghost2" data-action="vclose">${v.finish ? (id ? 'LANJUT ADUK' : 'KEEP MIXING') : v.inputs ? (id ? 'OK — ITU YANG MASUK' : 'OK — THAT IS WHAT WENT IN') : (id ? 'MENGERTI' : 'GOT IT')}</button>`}
-      ${v.note ? `<div class="vfine" style="margin:2px 0 6px">${v.note}</div>` : ''}
-      <div class="vfine">${id ? 'air di drum' : 'water in drum'} <b>${nf(v.poured, 1)} L</b> · ${id ? 'batas' : 'ceiling'} <b>${nf(S.live ? S.live.ceilingNet : 0, 1)} L</b></div>
-    </div>
-  </div>`;
-}
-
-/* Result of an incremental import: full screen, like the slump verdict, because
+/* Result of an incremental import: full screen and on demand, because
    "did my batches go in and did anything of mine get lost?" must be answerable
    in one glance. No water footer here — this is not a batch in progress. */
 function noticeHTML(v) {
@@ -1281,120 +1422,44 @@ function noticeHTML(v) {
   </div>`;
 }
 
-/* Water the worker says actually went in. Falls back to the advised amount when
-   the field is left alone, so the normal flow still needs no extra tap. */
-const creditedWater = (L) => {
-  const v = L.actual;
-  return v != null && isFinite(+v) ? Math.max(0, +v) : Math.max(0, +L.nextAdd || 0);
-};
-
-/* "OK — that is what went in" is a commitment, not a dismissal. Credit the
-   water and plasticizer the worker confirmed and reset the fields, so the drum
-   figure and the dose note move on the press itself — and so the next Record
-   cannot credit the same litres a second time. */
-function confirmAdds(L) {
-  const v = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
-  const water = creditedWater(L);
-  if (water > 0) { L.poured += water; L.adds.push({ L: water, slump: v }); }
-  const sp = Math.max(0, +L.spActual || 0);
-  if (sp > 0) { L.spExtra = (+L.spExtra || 0) + sp; L.adds.push({ sp, slump: v }); }
-  if (water > 0 || sp > 0) {
-    L.nextAdd = nextWater(L, v);
-    L.actual = L.nextAdd;      // prefill the next advised amount, as recordSlump does
-    L.spActual = 0;
-    return true;
-  }
-  return false;
-}
-
-function recordSlump() {
-  const L = S.live; if (!L) return;
-  const v = parseFloat($('#slumpIn').value);
-  if (!isFinite(v) || v < 0) { toast(LANG === 'id' ? 'Isi angka slump' : 'Enter a slump value'); return; }
-  const last = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
-  /* Same number as the last reading. Two different things look identical here:
-     a double tap / re-read, and an addition that genuinely did not move the
-     cone. Treating both as a re-read meant water that really went in could
-     never be recorded — the batch then under-counts its own water and reports
-     a w/c (and a strength) better than what is in the drum. That failure is
-     silent, so it is the one to design out.
-     Decide by time: under 25 s nobody poured 1.4 L and mixed it, so it is a
-     re-read. Later than that the worker is the only one who knows, so ask —
-     the answer changes the water accounting. */
-  if (last != null && Math.abs(last - v) < 1e-9) {
-    const prev = L.slumps[L.slumps.length - 1];
-    const dt = Date.now() - (+prev.t || 0);
-    const claimedW = creditedWater(L), claimedSP = Math.max(0, +L.spActual || 0);
-    L.nextAdd = nextWater(L, v);
-    if (dt > 25000 && (claimedW > 0.05 || claimedSP > 0)) {
-      verdict = { kind: 'warn', head: LANG === 'id' ? 'SLUMP SAMA' : 'SAME READING',
-        num: `${nf(v, 1)} cm`, unit: '', inputs: true, ask: true, poured: L.poured,
-        body: LANG === 'id'
-          ? `Kerucut belum bergerak sejak uji terakhir, tetapi kolom menyebut <b>${nf(claimedW, 1)} L air</b>${claimedSP > 0 ? ` dan <b>${nf(claimedSP, 0)} mL plastisizer</b>` : ''} masuk. Benar-benar dituang, atau hanya baca ulang?`
-          : `The cone has not moved since the last test, but the fields say <b>${nf(claimedW, 1)} L of water</b>${claimedSP > 0 ? ` and <b>${nf(claimedSP, 0)} mL of plasticizer</b>` : ''} went in. Did you pour that, or was this just a re-read?` };
-    } else {
-      verdict = Object.assign(makeVerdict(L, v), {
-        note: LANG === 'id' ? 'Slump sama — tidak ada yang dicatat.' : 'Same reading — nothing was credited.' });
-    }
-    save(); render(); return;
-  }
-  const water = creditedWater(L);
-  L.poured += water;
-  if (water > 0) { L.adds.push({ L: water, slump: v }); }
-  const spAdd = Math.max(0, +L.spActual || 0);
-  if (spAdd > 0) { L.spExtra = (+L.spExtra || 0) + spAdd; L.adds.push({ sp: spAdd, slump: v }); }
-  L.slumps.push({ v, t: Date.now() });
-  L.nextAdd = nextWater(L, v);
-  L.actual = L.nextAdd; L.spActual = 0;
-  verdict = makeVerdict(L, v);
-  save(); render();
-}
-
 function finishBatch() {
   const L = S.live; if (!L) return;
-  const slumpInput = $('#slumpIn');
-  const typed = slumpInput && slumpInput.value !== '' ? parseFloat(slumpInput.value) : null;
-  if (isFinite(typed) && typed > 0 && (!L.slumps.length || L.slumps[L.slumps.length - 1].v !== typed)) {
-    L.slumps.push({ v: typed, t: Date.now() });
-  }
-  // the last addition went in before this reading — credit what the worker says
-  const lastWater = creditedWater(L);
-  if (lastWater > 0) L.poured += lastWater;
-  const spLast = Math.max(0, +L.spActual || 0);
-  if (spLast > 0) L.spExtra = (+L.spExtra || 0) + spLast;
-  L.nextAdd = 0;
-  const finalSlump = L.slumps.length ? L.slumps[L.slumps.length - 1].v : null;
+  syncLedger(L);
+  const finalSlump = L.lastSlump;
   if (finalSlump == null) {
     const warn = LANG === 'id'
       ? 'Belum ada angka slump. Simpan campuran tanpa hasil uji?'
       : 'No slump reading recorded. Save the batch without one?';
     if (!confirm(warn)) return;
   }
-  const total = L.poured;                                   // water poured into the drum
+  const total = L.poured;                                           // water poured into the drum
   const totalWater = total + (L.creditS || 0) + (L.creditG || 0);   // + free water in aggregates
   const wcActual = L.Cact > 0 ? totalWater / L.Cact : 0;
+  const adds = rowsToAdds(L.rows);
   const entry = {
     id: 'b' + Date.now(), ts: L.ts, gradeName: L.gradeName, source: L.g.source || '', pour: L.pour || '',
     cementType: S.cementType, sack: L.sack, n: L.n, Cnom: L.Cnom, Cact: L.Cact, bufferPct: L.bufferPct,
     wetSand: L.wetSand, wetGrav: L.wetGrav, mS: L.mS, mG: L.mG, creditS: L.creditS, creditG: L.creditG,
     waterDesign: L.g.wc * L.Cnom, waterUsed: total, totalWater, wcActual, ceilingNet: L.ceilingNet,
-    finalSlump, targetSlump: effTarget(L), adds: L.adds.slice(), slumps: L.slumps.slice(), spL: L.spL, spExtra: +L.spExtra || 0, vol: L.vol,
+    finalSlump, targetSlump: effTarget(L), adds, rows: (L.rows || []).map((r) => ({ ...r })),
+    slumps: L.slumps.slice(), spL: L.spL, spExtra: +L.spExtra || 0, vol: L.vol,
     bucketSand: L.bucketSand == null ? null : Math.floor(L.bucketSand),
     bucketGrav: L.bucketGrav == null ? null : Math.floor(L.bucketGrav),
     strengthEst: strengthMPa(wcActual), notes: L.notes || '', d7: null, d28: null,
     costPerM3: anyPrice() ? costOf({ sand: L.g.sand, gravel: L.g.gravel, wc: L.g.wc, sp: L.g.sp || 0, key: L.g.key }).cost : null
   };
   S.log.push(entry);
-  // learn k from the last successful addition (L per cm per m3)
-  if (L.adds.length >= 1 && L.slumps.length >= 2) {
-    const a = L.adds[L.adds.length - 1];
+  // learn k from the last water addition that was followed by a higher reading
+  if (adds.length >= 1 && L.slumps.length >= 2) {
+    const a = adds[adds.length - 1];
     const prev = L.slumps[L.slumps.length - 2].v;
     if (a.L > 0 && a.slump > 0 && prev != null && a.slump > prev) {
       const kMeas = a.L / ((a.slump - prev) * L.vol);
       S.kPerM3PerCm = clamp(0.7 * (+S.kPerM3PerCm) + 0.3 * kMeas, (+S.kPerM3PerCm) * 0.8, (+S.kPerM3PerCm) * 1.2);
     }
   }
-  S.live = null; save(); screen = 'Diary'; render();
+  S.live = null; rowEdit = null; adviceOpen = false; echo = null;
+  save(); screen = 'Diary'; render();
   toast(LANG === 'id' ? 'Campuran tersimpan' : 'Batch saved');
 }
 
@@ -1519,7 +1584,7 @@ document.addEventListener('click', (ev) => {
   if (nav) { screen = nav.dataset.nav; render(); return; }
   const chip = ev.target.closest('[data-chip]');
   if (chip) {
-    const i = $('#slumpIn');
+    const i = $('#slIn');
     if (i) i.value = chip.dataset.chip;
     $$('.quick button').forEach((b) => b.classList.remove('on'));
     chip.classList.add('on');
@@ -1549,36 +1614,17 @@ document.addEventListener('click', (ev) => {
   if (!a) return;
   const act = a.dataset.action;
   if (act === 'start') return startBatch();
-  if (act === 'slump-rec') return recordSlump();
   if (act === 'slump-finish') return finishBatch();
-  if (act === 'vcredit') {
-    /* "Yes, it went in" on a re-read: credit it, keep the single reading, then
-       show the next step instead of leaving the worker with a dead card. */
-    if (S.live) {
-      confirmAdds(S.live);
-      const v = S.live.slumps.length ? S.live.slumps[S.live.slumps.length - 1].v : null;
-      verdict = v == null ? null : Object.assign(makeVerdict(S.live, v), {
-        note: LANG === 'id' ? 'Tercatat masuk ke drum.' : 'Recorded as poured.' });
-      save();
-    }
-    return render();
-  }
-  if (act === 'vclose') {
-    if (verdict && verdict.ask && S.live) {
-      /* Declined: nothing went in, so drop the claimed amounts rather than ask
-         again on the next press — and still show what to do next. */
-      S.live.spActual = 0; S.live.actual = S.live.nextAdd;
-      const v = S.live.slumps.length ? S.live.slumps[S.live.slumps.length - 1].v : null;
-      verdict = v == null ? null : Object.assign(makeVerdict(S.live, v), {
-        note: LANG === 'id' ? 'Slump sama — tidak ada yang dicatat.' : 'Same reading — nothing was credited.' });
-      save(); return render();
-    }
-    if (verdict && verdict.inputs && S.live && confirmAdds(S.live)) save();
-    verdict = null; return render();
-  }
+  if (act === 'add-water') { const i = $('#wIn'); if (S.live) addWaterRow(S.live, i ? i.value : 0); return; }
+  if (act === 'add-sp') { const i = $('#spIn'); if (S.live) addSpRow(S.live, i ? i.value : 0); return; }
+  if (act === 'add-slump') { const i = $('#slIn'); if (S.live) addSlumpRow(S.live, i ? i.value : 0); return; }
+  if (act === 'row-edit') { rowEdit = a.dataset.id; return render(); }
+  if (act === 'row-cancel') { rowEdit = null; return render(); }
+  if (act === 'row-save') { const i = $('#rowIn'); if (S.live) editRowValue(S.live, a.dataset.id, i ? i.value : ''); return; }
+  if (act === 'row-del') { if (S.live) delRow(S.live, a.dataset.id); return; }
+  if (act === 'advise') { adviceOpen = !adviceOpen; return render(); }
   if (act === 'nclose') { notice = null; return render(); }
-  if (act === 'vfinish') { verdict = null; return finishBatch(); }
-  if (act === 'slump-cancel') { verdict = null; S.live = null; save(); screen = 'Batch'; return render(); }
+  if (act === 'slump-cancel') { rowEdit = null; adviceOpen = false; echo = null; S.live = null; save(); screen = 'Batch'; return render(); }
   if (act === 'slump-note') {
     const n = prompt(t('Notes'), (S.live && S.live.notes) || '');
     if (n != null && S.live) { S.live.notes = n; save(); }
@@ -1591,7 +1637,7 @@ document.addEventListener('click', (ev) => {
   if (act === 'csv') return exportCSV();
   if (act === 'backup') return exportBackup();
   if (act === 'import') return $('#importFile') && $('#importFile').click();
-  if (act === 'merge') { verdict = null; return $('#mergeFile') && $('#mergeFile').click(); }
+  if (act === 'merge') { return $('#mergeFile') && $('#mergeFile').click(); }
   if (act === 'grade-add') {
     const id = 'g' + Date.now();
     S.grades.push({ id, key: 'K' + (300 + S.grades.length), name: 'K??? — new', source: 'site', sand: 1.8, gravel: 2.75, wc: 0.5, sp: 0 });
