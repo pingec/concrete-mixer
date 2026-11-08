@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.11.4';
+const VERSION = '1.11.5';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -674,7 +674,9 @@ const rowText = (r) => r.kind === 'water'
   : r.kind === 'sp'
     ? `+${nf(r.mL, 0)} mL ${LANG === 'id' ? 'plastisizer' : 'plasticizer'}`
     : `${nf(r.v, 1)} cm`;
-const hhmm = (t) => new Date(t).toLocaleTimeString(LANG === 'id' ? 'id-ID' : 'en-GB', { hour: '2-digit', minute: '2-digit' });
+/* Seconds matter here: several entries land inside the same minute while the
+   drum is being worked, and their order is the record. */
+const clock = (t) => new Date(t).toLocaleTimeString(LANG === 'id' ? 'id-ID' : 'en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 function setEcho(kind, text) { echo = { kind, text, t: Date.now() }; }
 /* A refusal is the one result that must reach the screen: say it, and repaint. */
@@ -810,14 +812,14 @@ function viewSlump() {
     if (rowEdit === r.id) {
       const val = r.kind === 'water' ? r.L : r.kind === 'sp' ? r.mL : r.v;
       return `<div class="lrow">
-        <span class="lt">${hhmm(r.t)}</span>
+        <span class="lt">${clock(r.t)}</span>
         <input type="number" inputmode="decimal" step="${r.kind === 'sp' ? 10 : 0.1}" min="0" id="rowIn" value="${val}">
         <span class="lu">${r.kind === 'water' ? 'L' : r.kind === 'sp' ? 'mL' : 'cm'}</span>
         <span class="lacts"><button class="xs ok" data-action="row-save" data-id="${r.id}">✓</button>
         <button class="xs" data-action="row-cancel">×</button></span></div>`;
     }
     return `<div class="lrow${r.kind === 'slump' ? ' sl' : ''}">
-      <span class="lt">${hhmm(r.t)}</span>
+      <span class="lt">${clock(r.t)}</span>
       <span class="ll">${rowText(r)}</span>
       <span class="lacts"><button class="xs neutral" data-action="row-edit" data-id="${r.id}">✎</button>
       <button class="xs" data-action="row-del" data-id="${r.id}">×</button></span></div>`;
@@ -943,7 +945,7 @@ function viewDiary() {
         <div class="m">${new Date(e.ts).toLocaleString()}${e.spL > 0 ? ' · SP ' + nf(e.spL * 1000, 0) + ' mL' : ''}</div>
         <div class="m">${t('Sand')} ${nf(e.wetSand, 1)} kg${e.bucketSand ? ' (' + e.bucketSand + ' ' + t('buckets') + ')' : ''} · ${t('Gravel')} ${nf(e.wetGrav, 1)} kg${e.bucketGrav ? ' (' + e.bucketGrav + ' ' + t('buckets') + ')' : ''}${e.mS != null ? ' · ' + t('Moisture').toLowerCase() + ' ' + (e.mS * 100).toFixed(1) + '%' : ''}</div>
         <div class="m">${strengthLabel(e.strengthEst, e.source)}${e.costPerM3 ? ' · Rp ' + nf(e.costPerM3, 0) + '/m³' : ''}</div>
-        ${Array.isArray(e.rows) && e.rows.length ? `<div class="led" style="margin-top:8px">${e.rows.map((r) => `<div class="lrow"><span class="lt">${hhmm(r.t)}</span><span class="ll">${rowText(r)}</span></div>`).join('')}</div>` : ''}
+        ${Array.isArray(e.rows) && e.rows.length ? `<div class="led" style="margin-top:8px">${e.rows.map((r) => `<div class="lrow"><span class="lt">${clock(r.t)}</span><span class="ll">${rowText(r)}</span></div>`).join('')}</div>` : ''}
         <div class="row" style="margin-top:8px">
           <label class="field" style="margin:0"><span class="lbl">${t('7 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d7 ?? ''}" data-cube="d7" data-id="${e.id}"></label>
           <label class="field" style="margin:0"><span class="lbl">${t('28 days')} (MPa)</span><input type="number" inputmode="decimal" step="0.1" placeholder="—" value="${e.d28 ?? ''}" data-cube="d28" data-id="${e.id}"></label>
