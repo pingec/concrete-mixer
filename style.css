@@ -25,6 +25,9 @@ body{
   background:var(--bg);
   color:var(--ink);
   font:400 17px/1.4 system-ui,-apple-system,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  /* A column flex box so the tab bar can live in the flow as a sticky footer
+     instead of being pinned with position:fixed. */
+  display:flex;flex-direction:column;
   min-height:100vh;
   min-height:100dvh;
   -webkit-text-size-adjust:100%;
@@ -40,8 +43,8 @@ header{
 header h1{font-size:18px;margin:0;font-weight:650;letter-spacing:.2px;flex:1}
 header .ver{font-size:12px;color:#9aa6b2;font-weight:400}
 
-main{padding:12px 12px 24px;max-width:720px;margin:0 auto;width:100%}
-body::after{content:'';display:block;height:calc(66px + env(safe-area-inset-bottom))}
+main{flex:1 0 auto;padding:12px 12px 24px;max-width:720px;margin:0 auto;width:100%}
+
 .screen{display:none}
 .screen.active{display:block}
 
@@ -130,7 +133,12 @@ button:disabled{opacity:.45;cursor:default}
 .note b{font-weight:800}
 
 .tabs{
-  position:fixed;left:0;right:0;bottom:0;z-index:30;
+  /* Sticky, not fixed. Android Chrome collapses its URL bar by resizing the
+     viewport; a fixed bar gets repositioned in its own frame and visibly jumps
+     up (pingo: "the bottom footer menu is sometimes jumping high"). In the flow
+     the bar is laid out with the scroll instead, so it cannot drift — and the
+     body::after spacer that used to hold content clear of it is gone. */
+  position:sticky;bottom:0;z-index:30;
   /* fixed height: the bar must never be stretched by the flex container, which
      on some mobile browsers doubled its box and left a blank half under the icons */
   height:66px;
