@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.11.1';
+const VERSION = '1.11.2';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -423,6 +423,7 @@ function renderTabs() {
   }).join('');
 }
 
+let lastScreen = null;
 function render() {
   LANG = S.lang || 'en';
   document.documentElement.lang = LANG;
@@ -430,9 +431,27 @@ function render() {
   $('#ver').textContent = 'v' + VERSION;
   renderTabs();
   const map = { Batch: viewBatch, Slump: viewSlump, Diary: viewDiary, Grades: viewGrades, Calibration: viewCalib, Cost: viewCost, Settings: viewSettings, Tips: viewTips };
+  /* Re-rendering must not move the page under the worker's thumb. Only a move
+     to a different screen starts at the top; everything else keeps its place. */
+  const keepY = screen === lastScreen ? window.scrollY : 0;
   $('#main').innerHTML = (map[screen] || viewBatch)() + (notice ? noticeHTML(notice) : '');
   if (screen === 'Batch') syncBatch();
-  window.scrollTo({ top: 0 });
+  lastScreen = screen;
+  window.scrollTo({ top: keepY });
+}
+
+/* Render, then put one element back where it was on screen. Adding a ledger row
+   pushes everything below it down by the row's height; without this the add
+   forms slide away from the thumb on every entry. */
+function renderAnchored(sel) {
+  const a = document.querySelector(sel);
+  const top = a ? a.getBoundingClientRect().top : null;
+  render();
+  if (top == null) return;
+  const b = document.querySelector(sel);
+  if (!b) return;
+  const dy = b.getBoundingClientRect().top - top;
+  if (Math.abs(dy) > 1) window.scrollTo({ top: Math.max(0, window.scrollY + dy) });
 }
 
 /* ---- Batch ---- */
@@ -677,7 +696,7 @@ function addWaterRow(L, litres) {
   }
   L.rows.push({ id: newRowId(), t: Date.now(), kind: 'water', L: +v.toFixed(3) });
   syncLedger(L); afterAdd(L, `+${nf(v, +v.toFixed(1) === +v ? 1 : 2)} L ${LANG === 'id' ? 'air' : 'water'}`);
-  save(); render();
+  save(); renderAnchored('.addrow');
 }
 
 function addSpRow(L, mL) {
@@ -693,7 +712,7 @@ function addSpRow(L, mL) {
   }
   L.rows.push({ id: newRowId(), t: Date.now(), kind: 'sp', mL: Math.round(v) });
   syncLedger(L); afterAdd(L, `+${nf(v, 0)} mL ${LANG === 'id' ? 'plastisizer' : 'plasticizer'} · ${LANG === 'id' ? 'dosis' : 'dose'} ${nf(doseNow(L), 2)}%`);
-  save(); render();
+  save(); renderAnchored('.addrow');
 }
 
 function addSlumpRow(L, cm) {
@@ -703,7 +722,7 @@ function addSlumpRow(L, cm) {
   syncLedger(L);
   const m = makeVerdict(L, L.lastSlump);
   setEcho(m.kind === 'ok' ? 'ok' : (m.kind === 'danger' ? 'danger' : 'warn'), `${nf(v, 1)} cm · ${m.head}${m.num ? ': ' + m.num : ''}`);
-  save(); render();
+  save(); renderAnchored('.addrow');
 }
 
 function editRowValue(L, id, raw) {
@@ -731,7 +750,7 @@ function editRowValue(L, id, raw) {
   }
   rowEdit = null; syncLedger(L);
   setEcho('ok', `${rowText(r)} · ${LANG === 'id' ? 'diperbarui' : 'updated'}`);
-  save(); render();
+  save(); renderAnchored('.addrow');
 }
 
 function delRow(L, id) {
@@ -741,7 +760,7 @@ function delRow(L, id) {
   L.rows = L.rows.filter((x) => x.id !== id);
   rowEdit = null; syncLedger(L);
   setEcho('ok', `${rowText(r)} · ${LANG === 'id' ? 'dihapus' : 'deleted'} · ${LANG === 'id' ? 'di drum' : 'in drum'} ${nf(L.poured, 1)} L`);
-  save(); render();
+  save(); renderAnchored('.addrow');
 }
 
 function viewSlump() {
