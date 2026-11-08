@@ -325,3 +325,32 @@ button.xs.ok{color:var(--ok);border-color:var(--ok)}
   transform:translateZ(0);
 }
 .fabcard .note{margin:0;box-shadow:0 12px 34px rgba(16,20,24,.22)}
+
+/* ---- drum summary strip (Slump) ----------------------------------------- */
+.strip{
+  position:sticky;top:var(--hdr,58px);z-index:19;
+  display:flex;align-items:center;gap:10px;
+  margin:-10px -12px 10px;padding:7px 12px;
+  background:rgba(238,241,244,.97);
+  -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+  border-bottom:1px solid var(--line);
+  font-size:12px;color:var(--muted);
+}
+.strip{justify-content:space-between}
+.strip .mtr{display:flex;align-items:center;gap:5px;white-space:nowrap}
+.strip .lb{font-weight:750;color:var(--ink);font-size:11.5px;letter-spacing:.2px}
+.strip .bar{display:block;width:32px;height:7px;border-radius:999px;background:#d7dee5;overflow:hidden;flex:0 0 auto}
+.strip .bar i{display:block;height:100%;background:var(--accent);border-radius:999px}
+.strip .bar i.high{background:var(--warn)}
+.strip .bar i.full{background:var(--danger)}
+.strip .num{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink);font-size:12px}
+.strip .num .of{color:var(--muted);font-weight:600;margin:0 1px}
+.strip .num i{font-style:normal;font-size:10.5px;font-weight:600;color:var(--muted);margin-left:2px}
+.strip .mtr.high .num{color:var(--warn)}
+.strip .mtr.full .num{color:var(--danger)}
+@media (max-width:380px){
+  .strip{gap:8px}
+  .strip .bar{width:26px}
+  .strip .lb{font-size:11px}
+  .strip .num{font-size:11.5px}
+}

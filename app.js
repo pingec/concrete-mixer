@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.11.6';
+const VERSION = '1.12.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -445,6 +445,9 @@ function render() {
   $('#main').innerHTML = (map[screen] || viewBatch)() + (notice ? noticeHTML(notice) : '');
   if (screen === 'Batch') syncBatch();
   lastScreen = screen;
+  /* the strip sticks directly under the header, whatever height it ends up */
+  const hdr = document.querySelector('header');
+  if (hdr) document.documentElement.style.setProperty('--hdr', hdr.offsetHeight + 'px');
   window.scrollTo({ top: keepY });
 }
 
@@ -841,7 +844,25 @@ function viewSlump() {
   const tgtC = Math.round(effTarget(L));
   const chips = [tgtC - 6, tgtC - 4, tgtC - 2, tgtC, tgtC + 2, tgtC + 4].filter((v) => v > 0);
 
+  /* Small, always-visible answer to "what is in the drum and how much room is
+     left": two meters, water and plasticizer, nothing else. Sticks under the
+     header so it stays true while the ledger scrolls. */
+  const meter = (label, used, cap, unit, digits) => {
+    const p = cap > 0 ? Math.min(1, used / cap) : 0;
+    const lvl = p >= 0.999 ? 'full' : (p >= 0.9 ? 'high' : '');
+    return `<span class="mtr ${lvl}">
+      <span class="lb">${label}</span>
+      <span class="bar"><i class="${lvl}" style="width:${Math.round(p * 100)}%"></i></span>
+      <span class="num">${nf(used, digits)}<span class="of">/</span>${nf(cap, digits)}<i>${unit}</i></span></span>`;
+  };
+  const showSp = +L.g.sp > 0 || +L.spExtra > 0;
+  const strip = `<div class="strip">
+    ${meter(id ? 'Air' : 'Water', L.poured, L.ceilingNet, 'L', 1)}
+    ${showSp ? meter('SP', dose, cap, '%', 2) : ''}
+  </div>`;
+
   return `
+  ${strip}
   <div class="card">
     <h2>${esc(L.gradeName)} · ${nf(L.Cact, 0)} kg ${t('Cement').toLowerCase()} <span class="sub">${t('target')} ${effTarget(L)} ± ${effBand(L)} cm</span></h2>
     ${stageBlock}
