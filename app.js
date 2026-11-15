@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.12.3';
+const VERSION = '1.12.4';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -122,9 +122,9 @@ const DEFAULTS = () => ({
   spCapV1: true,
   sigmaMPa: 5,
   wcTrimV2: true,
-  defaultsV: 4,
+  defaultsV: 5,
   pourTag: '',
-  cal: { tare: 2, bucketL: 20, sandWeigh: [36], gravelWeigh: [30], date: new Date().toISOString().slice(0, 10) },
+  cal: { tare: 0.5, bucketL: 11, sandWeigh: [15.5], gravelWeigh: [15.5], date: new Date().toISOString().slice(0, 10) },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
   prices: { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 55000, waterPerM3: 0, rmxPerM3: 1400000 },
   log: [],
@@ -200,6 +200,26 @@ function load() {
       if (!Array.isArray(S.cal.gravelWeigh) || !S.cal.gravelWeigh.length) S.cal.gravelWeigh = [30];
       if (!S.cal.date) S.cal.date = new Date().toISOString().slice(0, 10);
       S.defaultsV = 4;
+    }
+    /* Calibration: the site bucket is an 11 L pail, tare 0.5 kg, and both aggregate
+       buckets weigh 15.5 kg gross = 15.0 kg net per 11 L (1,364 kg/m3). Replaces the
+       old 20 L / 2 kg / 36 kg / 30 kg preset only where that preset is still sitting
+       there untouched — a calibration the user typed (any field, by hand) is a unit:
+       mixing an old tare with a new gross weight gives a wrong density, so the block
+       moves as a whole or not at all. */
+    if (!(+d.defaultsV >= 5)) {
+      const o = d.cal || {};
+      const one = (a, v) => Array.isArray(a) && a.length === 1 && Math.abs(+a[0] - v) < 1e-9;
+      const preset =
+        (!(+o.tare > 0) || Math.abs(+o.tare - 2) < 1e-9) &&
+        (!(+o.bucketL > 0) || Math.abs(+o.bucketL - 20) < 1e-9 || Math.abs(+o.bucketL - 12) < 1e-9) &&
+        (!o.sandWeigh || one(o.sandWeigh, 36)) &&
+        (!o.gravelWeigh || one(o.gravelWeigh, 30));
+      if (preset) {
+        const D = DEFAULTS().cal;
+        S.cal = { tare: D.tare, bucketL: D.bucketL, sandWeigh: D.sandWeigh.slice(), gravelWeigh: D.gravelWeigh.slice(), date: o.date || D.date };
+      }
+      S.defaultsV = 5;
     }
     /* Prices: the 5 m3 dump truck is the only one that reaches a Dalung gang, so
        the per-m3 rate is the 5 m3 one from the current Bali list (pasir cor
@@ -1212,8 +1232,8 @@ function viewCost() {
 /* ---- Tips: the process rules the numbers depend on ---- */
 const TIPS = [
   { t: ['Water by measurement, not by eye', 'Air diukur, bukan dikira'],
-    b: ['1 litre too much in a 2-sack batch is +0.0125 w/c — about <b>−1.5 MPa</b>. Mark a 20 L bucket in 1 L steps, or count a 1.5 L scoop. Every number in this app rests on this one habit.',
-      'Kelebihan 1 liter pada campuran 2 karung = +0,0125 w/c — sekitar <b>−1,5 MPa</b>. Tandai ember 20 L per 1 liter, atau hitung ciduk 1,5 L. Semua angka di aplikasi ini bergantung pada kebiasaan ini.'] },
+    b: ['1 litre too much in a 2-sack batch is +0.0125 w/c — about <b>−1.5 MPa</b>. Mark the bucket in 1 L steps, or count a 1.5 L scoop. Every number in this app rests on this one habit.',
+      'Kelebihan 1 liter pada campuran 2 karung = +0,0125 w/c — sekitar <b>−1,5 MPa</b>. Tandai ember per 1 liter, atau hitung ciduk 1,5 L. Semua angka di aplikasi ini bergantung pada kebiasaan ini.'] },
   { t: ['Calibrate the buckets, then re-check them', 'Kalibrasi ember, lalu ulangi'],
     b: ['Weigh 3 full buckets of sand and of gravel as they sit in the stockpile — damp, not dried. Repeat monthly, after rain and on every new delivery. The bulk density from those same numbers is what the mixer capacity check uses.',
       'Timbang 3 ember penuh pasir dan kerikil sesuai kondisi di stockpile — lembap, bukan dikeringkan. Ulangi tiap bulan, setelah hujan, dan setiap kiriman baru. Berat jenis lepas dari angka itu dipakai untuk cek kapasitas molen.'] },
@@ -1547,7 +1567,7 @@ function finishBatch() {
 
 function resetSettings() {
   const d = DEFAULTS();
-  ['sackSize', 'sacks', 'bufferPct', 'startWaterPct', 'targetSlump', 'band', 'mixerL', 'cementType', 'kPerM3PerCm', 'spMaxPct']
+  ['sackSize', 'sacks', 'bufferPct', 'startWaterPct', 'targetSlump', 'band', 'mixerL', 'cementType', 'kPerM3PerCm', 'spMaxPct', 'spDensity', 'sigmaMPa']
     .forEach((k) => { S[k] = d[k]; });
   S.cal = d.cal; S.moist = d.moist; S.prices = d.prices; S.live = null;
   save(); render();
