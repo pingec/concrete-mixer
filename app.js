@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.12.4';
+const VERSION = '1.13.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -100,7 +100,11 @@ const DEFAULT_GRADES = () => ([
   { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.540,  sp: 0,    spCap: 0.8 },
   { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48, spCap: 0.8 },
   { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53, spCap: 0.8 },
-  { id: 'gpile', key: 'Pile', name: 'K350 — Bore pile mix', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, spCap: 0.8, tslump: 16 }
+  { id: 'gpile', key: 'Pile', name: 'K350 — Bore pile mix', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, spCap: 0.8, tslump: 16 },
+  /* Water-retaining shell: pool slab, walls and tie beam. sand:koral 1:1 by mass at
+     w/c 0.45 — the durability limit decides this mix, not the strength; the plasticizer
+     buys the 14 ± 2 cm slump that the water is not allowed to buy. */
+  { id: 'gpool', key: 'K350', name: 'K350 — Pool shell', source: 'site', sand: 2.20, gravel: 2.20, wc: 0.450, sp: 0.45, spCap: 0.8, tslump: 14 }
 ]);
 
 const DEFAULTS = () => ({
@@ -220,6 +224,16 @@ function load() {
         S.cal = { tare: D.tare, bucketL: D.bucketL, sandWeigh: D.sandWeigh.slice(), gravelWeigh: D.gravelWeigh.slice(), date: o.date || D.date };
       }
       S.defaultsV = 5;
+    }
+    /* Presets added after v1.13.0: the pool shell. Must stay the LAST defaultsV block —
+       every block above rewrites S.defaultsV to its own number, so a lower-numbered block
+       placed last would erase this one. Pushed only when the id has never been seen, so a
+       recipe the user edited — or deliberately deleted — stays exactly as it is. */
+    if (!(+d.defaultsV >= 6)) {
+      const have = new Set(S.grades.map((g) => g.id));
+      const pool = DEFAULT_GRADES().find((g) => g.id === 'gpool');
+      if (pool && !have.has(pool.id)) S.grades.push(pool);
+      S.defaultsV = 6;
     }
     /* Prices: the 5 m3 dump truck is the only one that reaches a Dalung gang, so
        the per-m3 rate is the 5 m3 one from the current Bali list (pasir cor
