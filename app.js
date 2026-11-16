@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.13.0';
+const VERSION = '1.14.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -122,11 +122,7 @@ const DEFAULTS = () => ({
   kPerM3PerCm: 2.4,
   spMaxPct: 0.8,
   spDensity: 1.06,
-  spUnitV2: true,
-  spCapV1: true,
   sigmaMPa: 5,
-  wcTrimV2: true,
-  defaultsV: 5,
   pourTag: '',
   cal: { tare: 0.5, bucketL: 11, sandWeigh: [15.5], gravelWeigh: [15.5], date: new Date().toISOString().slice(0, 10) },
   moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
@@ -149,120 +145,14 @@ function load() {
     S.prices = Object.assign(DEFAULTS().prices, d.prices || {});
     if (!Array.isArray(S.grades) || !S.grades.length) S.grades = DEFAULT_GRADES();
     if (!Array.isArray(S.log)) S.log = [];
-    // migration: the readymix preset is Jayamix (SCG Readymix Indonesia); label the SP split
-    S.grades.forEach((g) => {
-      if (!g || typeof g.name !== 'string') return;
-      g.name = g.name.replace(/readymix design/i, 'Jayamix design').trim();
-      if (/Jayamix design/i.test(g.name) && !/\(With SP\)/i.test(g.name)) g.name += ' (With SP)';
-      if (/site mix/i.test(g.name) && !/\(No SP\)/i.test(g.name)) g.name += ' (No SP)';
-    });
-    // migration: SP used to be litres per kg of cement, now % of cement weight
-    if (!d.spUnitV2) {
-      S.grades.forEach((g) => {
-        if (g && +g.sp > 0 && +g.sp < 0.05) g.sp = +(+g.sp * (+S.spDensity || 1.06) * 100).toFixed(3);
-      });
-      S.spUnitV2 = true;
-    }
-    // migration: site-mix w/c trimmed to hold the characteristic grade at sigma 5 MPa
-    if (!d.wcTrimV2) {
-      S.grades.forEach((g) => {
-        if (!g) return;
-        if (g.id === 'g300s' && Math.abs(+g.wc - 0.500) < 1e-6) g.wc = 0.490;
-        if (g.id === 'g250s' && Math.abs(+g.wc - 0.550) < 1e-6) g.wc = 0.540;
-      });
-      S.wcTrimV2 = true;
-    }
-    // migration: the SP dose cap is per recipe now (0.8 % = top of the datasheet
-    // band for soft-plastic concrete). Fill blanks only — never overwrite a typed cap.
-    if (!d.spCapV1) {
-      S.grades.forEach((g) => { if (g && !(+g.spCap > 0)) g.spCap = +S.spMaxPct || 0.8; });
-      S.spCapV1 = true;
-    }
-    // migration: ship new built-in presets to existing installs (only ones never seen)
-    if (!(+d.defaultsV >= 2)) {
-      const have = new Set(S.grades.map((g) => g.id));
-      const pile = DEFAULT_GRADES().find((g) => g.id === 'gpile');
-      if (pile && !have.has(pile.id)) S.grades.push(pile);
-      S.defaultsV = 2;
-    }
-    // migration: name the bore pile preset by its grade (only if the name is untouched)
-    if (!(+d.defaultsV >= 3)) {
-      const p = S.grades.find((g) => g && g.id === 'gpile');
-      if (p && p.name === 'Bore Pile Mix (w/c 0.45, slump 16±2)') {
-        p.name = DEFAULT_GRADES().find((g) => g.id === 'gpile').name;
-      }
-      S.defaultsV = 3;
-    }
-    // migration: site prices + a starter bucket calibration so bucket counts show on first open.
-    // Only blanks are filled — anything already typed by the user is left alone.
-    if (!(+d.defaultsV >= 4)) {
-      const P = { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 55000 };
-      Object.keys(P).forEach((k) => { if (!(+S.prices[k] > 0)) S.prices[k] = P[k]; });
-      if (!(+S.cal.tare > 0)) S.cal.tare = 2;
-      if (!(+S.cal.bucketL > 0) || Math.abs(+S.cal.bucketL - 12) < 1e-9) S.cal.bucketL = 20;
-      if (!Array.isArray(S.cal.sandWeigh) || !S.cal.sandWeigh.length) S.cal.sandWeigh = [36];
-      if (!Array.isArray(S.cal.gravelWeigh) || !S.cal.gravelWeigh.length) S.cal.gravelWeigh = [30];
-      if (!S.cal.date) S.cal.date = new Date().toISOString().slice(0, 10);
-      S.defaultsV = 4;
-    }
-    /* Calibration: the site bucket is an 11 L pail, tare 0.5 kg, and both aggregate
-       buckets weigh 15.5 kg gross = 15.0 kg net per 11 L (1,364 kg/m3). Replaces the
-       old 20 L / 2 kg / 36 kg / 30 kg preset only where that preset is still sitting
-       there untouched — a calibration the user typed (any field, by hand) is a unit:
-       mixing an old tare with a new gross weight gives a wrong density, so the block
-       moves as a whole or not at all. */
-    if (!(+d.defaultsV >= 5)) {
-      const o = d.cal || {};
-      const one = (a, v) => Array.isArray(a) && a.length === 1 && Math.abs(+a[0] - v) < 1e-9;
-      const preset =
-        (!(+o.tare > 0) || Math.abs(+o.tare - 2) < 1e-9) &&
-        (!(+o.bucketL > 0) || Math.abs(+o.bucketL - 20) < 1e-9 || Math.abs(+o.bucketL - 12) < 1e-9) &&
-        (!o.sandWeigh || one(o.sandWeigh, 36)) &&
-        (!o.gravelWeigh || one(o.gravelWeigh, 30));
-      if (preset) {
-        const D = DEFAULTS().cal;
-        S.cal = { tare: D.tare, bucketL: D.bucketL, sandWeigh: D.sandWeigh.slice(), gravelWeigh: D.gravelWeigh.slice(), date: o.date || D.date };
-      }
-      S.defaultsV = 5;
-    }
-    /* Presets added after v1.13.0: the pool shell. Must stay the LAST defaultsV block —
-       every block above rewrites S.defaultsV to its own number, so a lower-numbered block
-       placed last would erase this one. Pushed only when the id has never been seen, so a
-       recipe the user edited — or deliberately deleted — stays exactly as it is. */
-    if (!(+d.defaultsV >= 6)) {
-      const have = new Set(S.grades.map((g) => g.id));
-      const pool = DEFAULT_GRADES().find((g) => g.id === 'gpool');
-      if (pool && !have.has(pool.id)) S.grades.push(pool);
-      S.defaultsV = 6;
-    }
-    /* Prices: the 5 m3 dump truck is the only one that reaches a Dalung gang, so
-       the per-m3 rate is the 5 m3 one from the current Bali list (pasir cor
-       Rp 1,550,000 / 5, koral 1/2 Rp 1,700,000 / 5). Migrated only where the old
-       default is still sitting there, so a price the user typed is never touched. */
-    if (!(+d.pricesV >= 1)) {
-      if (Math.abs(+(S.prices.sandPerM3 || 0) - 550000) < 1) S.prices.sandPerM3 = 310000;
-      if (Math.abs(+(S.prices.gravelPerM3 || 0) - 550000) < 1) S.prices.gravelPerM3 = 340000;
-      if (Math.abs(+(S.prices.spPerL || 0) - 90000) < 1) S.prices.spPerL = 55000;
-      S.pricesV = 1;
-    }
-    // migration: an open batch is a row ledger now. Rebuild the timeline from the
-    // old adds[] — each addition was stored with the reading that followed it.
-    if (S.live && !Array.isArray(S.live.rows)) {
-      const sl = Array.isArray(S.live.slumps) ? S.live.slumps : [];
-      const ad = Array.isArray(S.live.adds) ? S.live.adds : [];
-      const t0 = +S.live.ts || Date.now();
-      const rows = [];
-      sl.forEach((x, i) => {
-        const a = ad[i];
-        if (a && +a.L > 0) rows.push({ id: 'm' + i + 'w', t: (+x.t || t0 + i * 60000) - 2000, kind: 'water', L: +a.L });
-        if (a && +a.sp > 0) rows.push({ id: 'm' + i + 's', t: (+x.t || t0 + i * 60000) - 1000, kind: 'sp', mL: +a.sp });
-        rows.push({ id: 'm' + i, t: +x.t || t0 + i * 60000, kind: 'slump', v: +x.v });
-      });
-      S.live.rows = rows;
-      syncLedger(S.live);
-    }
-    // persist migration results so they do not re-run on every load
-    if (d.defaultsV !== S.defaultsV || d.spUnitV2 !== S.spUnitV2 || d.wcTrimV2 !== S.wcTrimV2 || d.spCapV1 !== S.spCapV1) save();
+    /* No migrations live here any more (v1.14.0). Removing them was a deliberate call:
+       there is no legacy state to carry, so load() is a plain restore — stored values over
+       DEFAULTS(), blanks filled from DEFAULTS(), and nothing rewritten on the way in.
+       The one line left is a validity check, not a conversion: a batch in progress that has
+       no row ledger cannot be rendered, so it is discarded instead of crashing the screen.
+       Consequence, accepted: an old backup JSON restores exactly as stored — an SP dose
+       saved in the pre-v1.9 unit (L per kg) will read that number as a percentage. */
+    if (S.live && !Array.isArray(S.live.rows)) S.live = null;
   } catch (e) { console.warn('load failed', e); }
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.warn('save failed', e); } }
