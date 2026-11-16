@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.14.0';
+const VERSION = '1.15.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -57,6 +57,14 @@ const ID = {
   'buckets': 'ember', 'Bulk density': 'Berat jenis lepas', 'Record slump': 'Catat slump',
   'of mixer': 'dari molen', 'Pour now': 'Tuang sekarang',
   'Water to pour': 'Air untuk dituang', 'Water in aggregate': 'Air dalam agregat',
+  'Water you pour': 'Air yang dituang',
+  'Water uncertainty': 'Ketidakpastian air',
+  'worst case': 'kasus terburuk',
+  'biggest term': 'faktor terbesar',
+  'measured (24 h soak)': 'diukur (rendam 24 jam)',
+  'Where the water uncertainty comes from': 'Dari mana ketidakpastian air',
+  'all measured': 'semua terukur',
+  'shrink this': 'perkecil ini',
   'Readymix per m3': 'Readymix per m3', 'Calib': 'Kalib', 'exact': 'pas',
   'fill calibration': 'isi kalibrasi', 'Remaining': 'Sisa',
   'Reset': 'Kembalikan', 'Reset settings to defaults': 'Kembalikan setelan ke awal',
@@ -125,7 +133,7 @@ const DEFAULTS = () => ({
   sigmaMPa: 5,
   pourTag: '',
   cal: { tare: 0.5, bucketL: 11, sandWeigh: [15.5], gravelWeigh: [15.5], date: new Date().toISOString().slice(0, 10) },
-  moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8 },
+  moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8, sandAbsMeasured: false, gravelAbsMeasured: false },
   prices: { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 55000, waterPerM3: 0, rmxPerM3: 1400000 },
   log: [],
   live: null
@@ -232,8 +240,82 @@ function snapshot() {
     bS, bG,
     bucketSand: bS > 0 ? wetSand / bS : null,
     bucketGrav: bG > 0 ? wetGrav / bG : null,
+    band: waterBudget({ mS, mG, dryS, dryG, absS, absG }),
     startWater: round(waterCorrected * (+S.startWaterPct || 85) / 100, 0.5)
   };
+}
+
+/* --------------------------------------------------- water uncertainty ----
+   An error budget for the batch water (GUM method). Every unknown hides or
+   leaks some water; the unknowns are independent, so their standard
+   uncertainties combine in quadrature and the result is quoted as u (k=1) and
+   U = 2u (~95 %).
+
+   The quantity this protects is the TOTAL water in the drum, because that is
+   what w/c and the strength follow. "Water to pour" is only the remainder after
+   subtracting what the aggregate already carries, so an error in the aggregate
+   moves the pour line but not the total — which is why the band lives on the
+   ceiling row and not on the pour row.
+
+   Each constant below is a judgement, deliberately in one place so it can be
+   argued with. Rectangular bands are quoted as width/√12; repeated measurements
+   as a plain ±. */
+const UNC = {
+  moistMeasured: 0.005,        // ±0.5 % — 1 g on a 200 g sample plus sampling error
+  moistSandUnmeasured: 0.039,  // credit 0, truth 0–13.5 % free (15 % wet − 1.5 % absorbed) → 13.5/√12
+  moistGravelUnmeasured: 0.0121, // credit 0, truth 0–4.2 % free (5 % wet − 0.8 % absorbed) → 4.2/√12
+  absMeasured: 0.003,          // a 24 h soak repeats to about ±0.3 %
+  absSandUnmeasured: 0.0066,   // 1.5 % assumed, true 0.7–3.0 % → width 2.3/√12
+  absGravelUnmeasured: 0.0092, // 0.8 % assumed, true 0.8–4.0 % → width 3.2/√12
+  jug: 0.5                     // litres, measuring by eye into a jerrycan
+};
+/* Practical extremes for the one-sided range, as fractions of dry mass. Kept
+   asymmetric on purpose: moisture can only ADD free water above absorption, and
+   absorption can only REMOVE it. A symmetric ± would misrepresent the risk. */
+const UNC_RANGE = {
+  moistMeasured: [-0.005, 0.005],
+  moistSandUnmeasured: [0, 0.135],
+  moistGravelUnmeasured: [0, 0.042],
+  absMeasured: [-0.003, 0.003],
+  absSandUnmeasured: [-0.015, 0.008],
+  absGravelUnmeasured: [-0.032, 0]
+};
+
+function waterBudget(s) {
+  const sandMeasured = s.mS != null, gravMeasured = s.mG != null;
+  const sandAbsDone = !!S.moist.sandAbsMeasured, gravAbsDone = !!S.moist.gravelAbsMeasured;
+  const D = { sand: s.dryS, gravel: s.dryG };
+  const terms = [
+    { k: 'koralM', ag: 'gravel', label: t('Gravel') + ' ' + t('Moisture').toLowerCase(),
+      sig: gravMeasured ? UNC.moistMeasured : UNC.moistGravelUnmeasured,
+      rng: gravMeasured ? UNC_RANGE.moistMeasured : UNC_RANGE.moistGravelUnmeasured },
+    { k: 'koralA', ag: 'gravel', label: t('Gravel') + ' ' + t('Absorption').toLowerCase(),
+      sig: gravAbsDone ? UNC.absMeasured : UNC.absGravelUnmeasured,
+      rng: gravAbsDone ? UNC_RANGE.absMeasured : UNC_RANGE.absGravelUnmeasured },
+    { k: 'sandA', ag: 'sand', label: t('Sand') + ' ' + t('Absorption').toLowerCase(),
+      sig: sandAbsDone ? UNC.absMeasured : UNC.absSandUnmeasured,
+      rng: sandAbsDone ? UNC_RANGE.absMeasured : UNC_RANGE.absSandUnmeasured },
+    { k: 'sandM', ag: 'sand', label: t('Sand') + ' ' + t('Moisture').toLowerCase(),
+      sig: sandMeasured ? UNC.moistMeasured : UNC.moistSandUnmeasured,
+      rng: sandMeasured ? UNC_RANGE.moistMeasured : UNC_RANGE.moistSandUnmeasured },
+    { k: 'jug', ag: null, label: t('Water you pour'), sig: UNC.jug, rng: [-0.5, 0.5], litres: true }
+  ];
+  let varSum = 0, lo = 0, hi = 0;
+  terms.forEach((x) => {
+    const mass = x.litres ? 1 : D[x.ag];
+    x.u = mass * x.sig;
+    x.lo = mass * x.rng[0];
+    x.hi = mass * x.rng[1];
+    x.measured = x.k === 'jug' ? true
+      : x.k.endsWith('M') ? (x.ag === 'sand' ? sandMeasured : gravMeasured)
+        : (x.ag === 'sand' ? sandAbsDone : gravAbsDone);
+    varSum += x.u * x.u;
+    lo += x.lo; hi += x.hi;
+  });
+  const u = Math.sqrt(varSum);
+  terms.forEach((x) => { x.share = u > 0 ? (x.u * x.u) / varSum : 0; });
+  terms.sort((a, b) => b.u - a.u);
+  return { u, lo, hi, terms, top: terms[0], nMeasured: terms.filter((x) => x.measured).length };
 }
 
 /* ---- strength model ------------------------------------------------------
@@ -320,6 +402,8 @@ const INFO = {
     'Air yang benar-benar harus dituang: air resep dikurangi air bebas yang sudah ada di pasir dan kerikil. Kalau kadar air tidak diukur, nilainya sama dengan air resep.'],
   ceil: ['Hard stop — never pour more than this. It is measured against the cement actually in the drum (including the buffer). With buffer 0 it equals “water to pour”; the gap between the two <b>is</b> the buffer margin. Nothing else can make them differ.',
     'Batas keras — jangan menuang lebih dari ini. Dihitung terhadap semen yang benar-benar ada di drum (termasuk cadangan). Dengan cadangan 0 nilainya sama dengan “air untuk dituang”; selisih keduanya <b>adalah</b> cadangan semen. Tidak ada hal lain yang membuat keduanya berbeda.'],
+  band: ['An <b>error budget</b> for the batch water. The recipe fixes the <i>total</i> water at w/c × cement; what is uncertain is how much of it is already sitting in the aggregate. Each unknown contributes a standard uncertainty on the water it hides, they are independent, so they combine in quadrature: u = √Σuᵢ², quoted as U = 2u for roughly 95 %.<br><br>The five terms: sand moisture, koral moisture, sand absorption, koral absorption, and how exactly you measure the water you pour. A term is small once it is <b>measured</b> (pan test, 24 h soak) and large while it is <b>assumed</b> — that is why the number tells you which test to run next instead of just how unsure it is.<br><br>The range is deliberately <b>asymmetric</b>: moisture above absorption can only <i>add</i> water, absorption can only <i>remove</i> it. The low side is recoverable — the mix comes out stiff and you have room to the ceiling. The high side is not: water that is already in the drum cannot be taken out.<br><br>One consequence worth knowing: if the true absorption is higher than the value entered, the credit was too generous, and the app can say “ceiling reached” while the concrete is still stiff. That is a water shortage hiding behind a good number, not a plasticizer problem.',
+    'Neraca kesalahan untuk air campuran. Resep mematok <i>total</i> air pada w/c × semen; yang tidak pasti adalah berapa banyak yang sudah ada di agregat. Setiap faktor yang tidak diketahui menyumbang ketidakpastian pada air yang disembunyikannya, dan karena saling bebas, semuanya digabung secara kuadratik: u = √Σuᵢ², ditulis U = 2u untuk sekitar 95 %.<br><br>Lima faktor: kadar air pasir, kadar air kerikil, penyerapan pasir, penyerapan kerikil, dan ketelitian mengukur air yang dituang. Sebuah faktor menjadi kecil setelah <b>diukur</b> (uji wajan, rendam 24 jam) dan tetap besar selama hanya <b>diasumsikan</b> — karena itu angkanya menunjukkan uji mana yang harus dilakukan berikutnya, bukan cuma seberapa ragu.<br><br>Rentangnya sengaja <b>tidak simetris</b>: kadar air di atas penyerapan hanya bisa <i>menambah</i> air, penyerapan hanya bisa <i>mengurangi</i>. Sisi bawah masih bisa diperbaiki — campuran jadi kaku dan masih ada ruang sampai batas. Sisi atas tidak: air yang sudah masuk drum tidak bisa dikeluarkan.<br><br>Satu akibat yang perlu diketahui: kalau penyerapan sebenarnya lebih tinggi dari angka yang dimasukkan, kredit airnya terlalu besar, dan aplikasi bisa bilang “batas tercapai” padahal beton masih kaku. Itu kekurangan air yang tersembunyi di balik angka bagus, bukan masalah plastisizer.'],
   buckets: ['Whole level-full buckets, rounded <b>down</b>. The remainder is added as a partial bucket at the end — nothing is ever scooped back out of a full bucket.',
     'Ember penuh diratakan, dibulatkan <b>ke bawah</b>. Sisanya ditambahkan sebagai sebagian ember di akhir — tidak pernah mengurangi ember yang sudah penuh.'],
   sp: ['Superplasticizer for this batch. <b>Dose is % of cement weight</b>, as the datasheet writes it, converted to millilitres with the product density. Add it to the mixing water or pour it together with the water — never onto dry material. Wet-mix at least <b>5 minutes</b> (Viscocrete 3115 N datasheet), and only start adding the remaining water in the last third of that time. Once it is in, do not try to stretch the slump with water: add more plasticizer instead.',
@@ -454,6 +538,13 @@ function viewBatch() {
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
     <div class="fine" id="o-ceilNote" style="margin:6px 2px 0"></div>
     ${infoNote('ceil')}
+    <div class="stat" id="row-band"><span class="k">${t('Water uncertainty')} ${infoBtn('band')}</span><span class="v">± <span id="o-bandU">—</span><span class="unit">L</span></span></div>
+    <div class="fine" id="o-bandRange" style="margin:6px 2px 0"></div>
+    <details id="bandBox" style="margin:8px 2px 0">
+      <summary class="fine" id="o-bandTop" style="cursor:pointer"></summary>
+      <div id="o-bandTerms" class="fine" style="margin-top:8px"></div>
+    </details>
+    ${infoNote('band')}
     <div class="stat" id="row-sp" style="display:none"><span class="k">${t('Plasticizer')} ${infoBtn('sp')}</span><span class="v"><span id="o-sp">—</span><span class="unit">mL</span> <span class="fine" id="o-spPct"></span></span></div>
     ${infoNote('sp')}
     <div class="stat"><span class="k">${t('Batch volume')}</span><span class="v"><span id="o-vol">—</span><span class="unit">m³</span> <span class="fine" id="o-volpct"></span></span></div>
@@ -513,6 +604,32 @@ function syncBatch() {
     ? (LANG === 'id' ? 'tanpa cadangan semen' : 'no cement buffer set')
     : (LANG === 'id' ? `cadangan semen ${nf(margin, 1)} L` : `cement buffer margin ${nf(margin, 1)} L`));
   set('o-credit', nf(s.creditS + s.creditG, 1));
+  /* Water uncertainty: an honest range instead of a single number. Reads the
+     same budget the INFO note explains, and shrinks as tests are entered. */
+  const B = s.band;
+  set('o-bandU', nf(B.u, 1));
+  set('o-bandRange', `95% ± ${nf(2 * B.u, 1)} L · ${t('worst case')} ${nf(B.lo, 1)} / +${nf(B.hi, 1)} L`);
+  const hint = {
+    sandM: LANG === 'id' ? 'isi uji wajan pasir' : 'run the sand pan test',
+    gravelM: LANG === 'id' ? 'isi uji wajan kerikil' : 'run the gravel pan test',
+    sandA: LANG === 'id' ? 'rendam 24 jam, lalu centang terukur' : '24 h soak, then tick measured',
+    gravelA: LANG === 'id' ? 'rendam 24 jam, lalu centang terukur' : '24 h soak, then tick measured',
+    jug: LANG === 'id' ? 'ukur air di wadah bertanda' : 'measure the water in a marked container'
+  };
+  const topEl = document.getElementById('o-bandTop');
+  if (topEl) {
+    topEl.textContent = B.u < 0.3
+      ? `± ${nf(B.u, 1)} L — ${t('all measured')}`
+      : `${t('biggest term')}: ${B.top.label} (${Math.round(B.top.share * 100)}%) — ${hint[B.top.k]}`;
+  }
+  const termsEl = document.getElementById('o-bandTerms');
+  if (termsEl) {
+    termsEl.innerHTML = B.terms.map((x) =>
+      `<div style="display:flex;justify-content:space-between;gap:12px;padding:3px 0${x.measured ? ';opacity:.55' : ''}">` +
+      `<span>${x.label}</span><span style="white-space:nowrap">± ${nf(x.u, 2)} L · ${Math.round(x.share * 100)}%</span></div>`).join('')
+      + `<div style="padding-top:8px">u = √Σuᵢ² = ${nf(B.u, 1)} L · U = 2u ≈ ${nf(2 * B.u, 1)} L (95%) · `
+      + `${B.nMeasured}/5 ${LANG === 'id' ? 'terukur' : 'measured'}</div>`;
+  }
   const rowCredit = document.getElementById('row-credit');
   if (rowCredit) rowCredit.style.display = (s.creditS + s.creditG) > 0.05 ? '' : 'none';
   set('o-sp', nf(s.spL * 1000, 0));
@@ -1023,6 +1140,9 @@ function viewCalib() {
     </div>
     <div class="stat"><span class="k">${t('Moisture')} ${t('Sand').toLowerCase()}</span><span class="v sm">${mS != null ? (mS * 100).toFixed(1) + '%' : '—'}</span></div>
     <div class="stat"><span class="k">${t('Absorption')} ${t('Sand').toLowerCase()} (%)</span><span class="v sm"><input type="number" step="0.1" data-bind="moist.sandAbs" data-num="1" value="${S.moist.sandAbs}" style="max-width:110px;min-height:44px;font-size:17px;margin-left:auto"></span></div>
+    <label class="field" style="display:flex;gap:10px;align-items:center">
+      <input type="checkbox" data-bind="moist.sandAbsMeasured" data-check="1" ${S.moist.sandAbsMeasured ? 'checked' : ''} style="width:26px;height:26px;min-height:0">
+      <span class="lbl" style="margin:0">${t('measured (24 h soak)')}</span></label>
     <hr class="sep">
     <label class="field" style="display:flex;gap:10px;align-items:center">
       <input type="checkbox" data-bind="moist.useGravel" data-check="1" ${S.moist.useGravel ? 'checked' : ''} style="width:26px;height:26px;min-height:0">
@@ -1033,6 +1153,9 @@ function viewCalib() {
     </div>
     <div class="stat"><span class="k">${t('Moisture')} ${t('Gravel').toLowerCase()}</span><span class="v sm">${mG != null ? (mG * 100).toFixed(1) + '%' : '—'}</span></div>
     <div class="stat"><span class="k">${t('Absorption')} ${t('Gravel').toLowerCase()} (%)</span><span class="v sm"><input type="number" step="0.1" data-bind="moist.gravelAbs" data-num="1" value="${S.moist.gravelAbs}" style="max-width:110px;min-height:44px;font-size:17px;margin-left:auto"></span></div>
+    <label class="field" style="display:flex;gap:10px;align-items:center">
+      <input type="checkbox" data-bind="moist.gravelAbsMeasured" data-check="1" ${S.moist.gravelAbsMeasured ? 'checked' : ''} style="width:26px;height:26px;min-height:0">
+      <span class="lbl" style="margin:0">${t('measured (24 h soak)')}</span></label>
     <div class="note info">${LANG === 'id' ? 'Kadar air diukur pada sampel basah vs kering. Air bebas = massa kering × (kadar air − penyerapan).' : 'Moisture is measured on a wet vs dried sample. Free water = dry mass × (moisture − absorption).'}</div>
   </div>`;
 }
