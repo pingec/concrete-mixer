@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.15.0';
+const VERSION = '1.16.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -108,7 +108,7 @@ const DEFAULT_GRADES = () => ([
   { id: 'g250s', key: 'K250', name: 'K250 — site mix (No SP)',       source: 'site', sand: 2.05,  gravel: 3.10,  wc: 0.540,  sp: 0,    spCap: 0.8 },
   { id: 'g300r', key: 'K300', name: 'K300 — Jayamix design (With SP)', source: 'rmx',  sand: 3.367, gravel: 2.857, wc: 0.5953, sp: 0.48, spCap: 0.8 },
   { id: 'g250r', key: 'K250', name: 'K250 — Jayamix design (With SP)', source: 'rmx',  sand: 3.817, gravel: 3.206, wc: 0.6680, sp: 0.53, spCap: 0.8 },
-  { id: 'gpile', key: 'Pile', name: 'K350 — Bore pile mix', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, spCap: 0.8, tslump: 16 },
+  { id: 'gpile', key: 'Pile', name: 'K350 — Bore pile mix', source: 'site', sand: 2.275, gravel: 2.175, wc: 0.450, sp: 0.40, spCap: 0.8, tslump: 18 },
   /* Water-retaining shell: pool slab, walls and tie beam. sand:koral 1:1 by mass at
      w/c 0.45 — the durability limit decides this mix, not the strength; the plasticizer
      buys the 14 ± 2 cm slump that the water is not allowed to buy. */
@@ -117,6 +117,7 @@ const DEFAULT_GRADES = () => ([
 
 const DEFAULTS = () => ({
   lang: 'en',
+  rev: 0,
   grades: DEFAULT_GRADES(),
   gradeId: 'g300s',
   sackSize: 40,
@@ -133,7 +134,7 @@ const DEFAULTS = () => ({
   sigmaMPa: 5,
   pourTag: '',
   cal: { tare: 0.5, bucketL: 11, sandWeigh: [15.5], gravelWeigh: [15.5], date: new Date().toISOString().slice(0, 10) },
-  moist: { useSand: false, useGravel: false, sandWet: 0, sandDry: 0, gravelWet: 0, gravelDry: 0, sandAbs: 1.5, gravelAbs: 0.8, sandAbsMeasured: false, gravelAbsMeasured: false },
+  moist: { useSand: true, useGravel: false, sandWet: 1000, sandDry: 909, gravelWet: 0, gravelDry: 0, sandAbs: 2.5, gravelAbs: 0.8, sandAbsMeasured: false, gravelAbsMeasured: false },
   prices: { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 55000, waterPerM3: 0, rmxPerM3: 1400000 },
   log: [],
   live: null
@@ -165,8 +166,37 @@ function load() {
 }
 function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) { console.warn('save failed', e); } }
 
+/* ---- released-value revisions --------------------------------------------
+   v1.14.0 removed every migration, on the argument that there was no legacy
+   state worth carrying. Two shipped defaults have since moved — sand absorption
+   1.5 -> 2.5 % and the bore pile slump target 16 -> 18 cm — and a phone that
+   installed before today still holds the old ones, so this is the narrowest
+   possible version of the pattern used in v1.10–v1.12: a value is rewritten
+   ONLY if it is still exactly the old default, so a number typed by hand is
+   never touched. Gated by S.rev, so it runs once and never again.
+
+   The moisture seed is even narrower: it only fires when no sample has ever
+   been entered on this install, in which case pingo's 2026-11-16 measurement
+   (1000 g wet -> 909 g dry) is installed and the switch is turned on. If he
+   has ever typed a sample, his own numbers stay and nothing is enabled. */
+const REV = 2;
+function revise() {
+  if ((+S.rev || 0) >= REV) return;
+  if (+S.moist.sandAbs === 1.5) S.moist.sandAbs = 2.5;
+  const p = (S.grades || []).find((g) => g.id === 'gpile');
+  if (p && +p.tslump === 16) p.tslump = 18;
+  if (!(+S.moist.sandWet > 0) && !(+S.moist.sandDry > 0)) {
+    S.moist.sandWet = 1000; S.moist.sandDry = 909; S.moist.useSand = true;
+  }
+  S.rev = REV;
+  save();
+}
+
 /* ------------------------------------------------------------ engineering */
-const SG = { cement: 3150, sand: 2650, gravel: 2650 };      // kg/m3 (SSD)
+/* Sand SG 2450 is a Karangasem reference (2.4–2.5 bulk), not a measurement of pingo's own
+   stock; it moves yield, cement per m³ and cost — never the drum, whose masses are ratios of
+   cement. Coarse SG is still the flat 2650 default, equally unmeasured. */
+const SG = { cement: 3150, sand: 2450, gravel: 2650 };      // kg/m3 (SSD)
 const AIR = 0.02;                                           // entrapped air, fraction of concrete volume
 const STRENGTH = { k: 2.88, A: { OPC: 169, PCC: 155 } };    // cube MPa = A * exp(-k * w/c)
 
@@ -669,9 +699,12 @@ function stageSteps(L) {
     { m: t('Cement'), s: `${nf(L.n, L.n % 1 ? 1 : 0)} × ${L.sack} kg = ${nf(L.Cact, 0)} kg` },
     { m: id ? 'Aduk kering' : 'Dry mix', s: id ? 'pasir + kerikil 1 menit, lalu semen, aduk 1 menit' : 'sand + gravel 1 min, then cement, mix 1 min' }
   ];
-  if (L.spL > 0) out.push({ m: t('Plasticizer'), s: `${nf(L.spL * 1000, 0)} mL — ${id ? 'encerkan di air awal, jangan ke bahan kering' : 'diluted in the start water, never onto dry material'}` });
-  out.push({ m: t('Start water'), s: `${nf(L.startWater, 1)} L — ${id ? 'aduk basah 5 menit, lalu setel' : 'wet mix 5 min, then trim'}` });
+  out.push({ m: t('Start water'), s: `${nf(L.startWater, 1)} L — ${id ? 'aduk basah 5 menit, lalu uji' : 'wet mix 5 min, then test'}` });
   out.push({ m: t('Slump test'), s: id ? 'ukur, lalu masukkan angkanya di bawah' : 'measure, then enter the reading below' });
+  /* Held back, not dosed up front: pingo pours the whole water budget first and buys the last
+     few centimetres with plasticizer only if the cone reads short. Listed after the slump test
+     so the sheet matches what the crew does, not what the recipe assumes. */
+  if (L.spL > 0) out.push({ m: t('Plasticizer'), s: `${nf(L.spL * 1000, 0)} mL ${id ? 'ditahan — hanya jika slump kurang; langsung ke drum yang berputar' : 'held back — only if the slump is short; straight into the turning drum'}` });
   return out;
 }
 
@@ -1901,6 +1934,7 @@ $('#btnTips').addEventListener('click', () => {
 });
 
 load();
+revise();
 LANG = S.lang || 'en';
 render();
 
