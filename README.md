@@ -101,12 +101,39 @@ Site-mix defaults are the trimmed, no-admixture recipes: strength comes from
 w/c, cement content buys only paste/workability. Validate with one trial batch
 and 7/28-day cubes before trusting them on structure.
 
+## What v1.17.0 changed (2026-11-18)
+
+Every value below came off pingo's own scale that day, on two trial batches.
+
+| | was | now | how it was found |
+|---|---|---|---|
+| sand absorption | 2.5 % | **12 %** | a 1-sack batch stood at 16 cm on 20 L with no plasticizer; a 2.5 % credit would have put it at w/c 0.72, which cannot stand up at 16 cm |
+| gravel absorption | 0.8 % | **5.63 %** (measured) | 24 h soak: 1040.6 g SSD → 985.1 g dry |
+| sand moisture | 10.02 % | **12.43 %** | pan test, 1044.6 / 929.1 g |
+| gravel moisture | off | **5.69 %** | pan test, 1133.1 / 1072.1 g |
+| bucket cal | 0.5 kg tare, 15.5 kg | **0 kg tare, 15.35 / 14.65 kg** | re-weighed, net |
+
+**The one behaviour change:** the aggregate water credit may now go **negative**, and
+when it does the app shows `Water the aggregate takes — N L` and puts a *Pre-wet the
+stone* step at the top of the staging checklist. Before, the credit was floored at
+zero, so a drained stone that drank 6 L out of a 36 L budget was invisible — the crew
+saw a stiff mix and reached for the hose, which is the one failure the ceiling exists
+to prevent. The ceiling still governs **free** water; with a deficit the poured total
+is allowed to exceed it by exactly the litres that go into the pores.
+
+Also: bucket calibration and moisture now default to measured values, and the drum
+loading step reads *1–2 L of the start water first, then aggregate, then cement* —
+cement onto bare steel skins the blades.
+
 ## First run on site
 
 1. **Calibration** — bucket tare, bucket volume in litres, then 3 full buckets of
    sand and 3 of gravel weighed and averaged. Re-weigh after rain or a new delivery.
 2. **Pan test (optional)** — 1 kg wet sample, dry it, weigh again. Absorption
-   defaults: sand 1.5%, gravel 0.8%.
+   defaults: **sand 12 %, gravel 5.63 %** (measured on the Dalung stock, 2026-11-18 —
+   both aggregates are the same vesicular volcanic rock; the finer crush exposes more
+   pore volume). At those absorptions a wet sand carries almost no free water, so the
+   w/c water comes out of the jug and the pour is close to the full w/c × cement.
 3. **Cost** (optional) — cement per sack, sand/gravel per m3, SP per litre.
 4. **Batch** — pick grade, sack size, sacks per batch. The app gives full buckets
    plus a remainder; nothing is ever subtracted from a full bucket.

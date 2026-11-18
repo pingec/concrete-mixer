@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.16.0';
+const VERSION = '1.17.0';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -57,6 +57,8 @@ const ID = {
   'buckets': 'ember', 'Bulk density': 'Berat jenis lepas', 'Record slump': 'Catat slump',
   'of mixer': 'dari molen', 'Pour now': 'Tuang sekarang',
   'Water to pour': 'Air untuk dituang', 'Water in aggregate': 'Air dalam agregat',
+  'Water the aggregate takes': 'Air yang diserap agregat',
+  'add it with the stone': 'tuang bersama kerikil, sebelum semen',
   'Water you pour': 'Air yang dituang',
   'Water uncertainty': 'Ketidakpastian air',
   'worst case': 'kasus terburuk',
@@ -133,8 +135,18 @@ const DEFAULTS = () => ({
   spDensity: 1.06,
   sigmaMPa: 5,
   pourTag: '',
-  cal: { tare: 0.5, bucketL: 11, sandWeigh: [15.5], gravelWeigh: [15.5], date: new Date().toISOString().slice(0, 10) },
-  moist: { useSand: true, useGravel: false, sandWet: 1000, sandDry: 909, gravelWet: 0, gravelDry: 0, sandAbs: 2.5, gravelAbs: 0.8, sandAbsMeasured: false, gravelAbsMeasured: false },
+  cal: { tare: 0, bucketL: 11, sandWeigh: [15.35], gravelWeigh: [14.65], date: new Date().toISOString().slice(0, 10) },
+  /* MEASURED ON PINGO'S DALUNG STOCK, 2026-11-18. Both aggregates are the same
+     vesicular volcanic rock: 5.63 % absorption at 10-20 mm (24 h soak, 1040.6 g
+     SSD -> 985.1 g dry) and ~12 % at 0-5 mm. Absorption rises as the rock is
+     crushed finer because more pore volume is opened — and a batch that stood at
+     16 cm on water alone can only be explained by a sand credit near zero, so 12 %
+     is the value the concrete itself demanded, not a guess carried over from the
+     coarse stone.
+     The consequence to keep in view: at these moistures the aggregate carries
+     almost NO free water, so the w/c water comes out of the jug, not out of the
+     sand. Before v1.17.0 the app credited ~8.8 L per sack that was not there. */
+  moist: { useSand: true, sandWet: 1044.6, sandDry: 929.1, useGravel: true, gravelWet: 1133.1, gravelDry: 1072.1, sandAbs: 12, gravelAbs: 5.63, sandAbsMeasured: false, gravelAbsMeasured: true },
   prices: { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 55000, waterPerM3: 0, rmxPerM3: 1400000 },
   log: [],
   live: null
@@ -168,26 +180,33 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e
 
 /* ---- released-value revisions --------------------------------------------
    v1.14.0 removed every migration, on the argument that there was no legacy
-   state worth carrying. Two shipped defaults have since moved — sand absorption
-   1.5 -> 2.5 % and the bore pile slump target 16 -> 18 cm — and a phone that
-   installed before today still holds the old ones, so this is the narrowest
-   possible version of the pattern used in v1.10–v1.12: a value is rewritten
-   ONLY if it is still exactly the old default, so a number typed by hand is
-   never touched. Gated by S.rev, so it runs once and never again.
+   state worth carrying. Shipped defaults have moved twice since, and a phone that
+   installed before a move still holds the old values, so this is the narrowest
+   possible version of the pattern used in v1.10–v1.12: a value is rewritten ONLY
+   if it is still exactly an old default, so a number typed by hand is never
+   touched. Gated by S.rev, so it runs once and never again.
 
-   The moisture seed is even narrower: it only fires when no sample has ever
-   been entered on this install, in which case pingo's 2026-11-16 measurement
-   (1000 g wet -> 909 g dry) is installed and the switch is turned on. If he
-   has ever typed a sample, his own numbers stay and nothing is enabled. */
-const REV = 2;
+   REV 3 (v1.17.0, 2026-11-18) carries the day's measurements: absorption
+   2.5 -> 12 % (sand) and 0.8 -> 5.63 % (koral, now MEASURED), the two moisture
+   samples, and the bucket calibration at zero tare. Everything is guarded by an
+   exact equality test against the value it replaces. */
+const REV = 3;
 function revise() {
   if ((+S.rev || 0) >= REV) return;
-  if (+S.moist.sandAbs === 1.5) S.moist.sandAbs = 2.5;
+  const m = S.moist;
+  /* Absorption: 1.5 % was the pre-v1.16 default, 2.5 % the v1.16 one. */
+  if (+m.sandAbs === 1.5 || +m.sandAbs === 2.5) m.sandAbs = 12;
+  if (+m.gravelAbs === 0.8) { m.gravelAbs = 5.63; m.gravelAbsMeasured = true; }
+  /* Moisture samples: 1000/909 was the v1.16 seed, never a hand entry. */
+  if (+m.sandWet === 1000 && +m.sandDry === 909) { m.sandWet = 1044.6; m.sandDry = 929.1; }
+  if (!(+m.gravelWet > 0) && !(+m.gravelDry > 0)) { m.gravelWet = 1133.1; m.gravelDry = 1072.1; m.useGravel = true; }
+  /* Bucket calibration: 0.5 kg tare with two 15.5 kg gross readings. */
+  if (+S.cal.tare === 0.5) S.cal.tare = 0;
+  const eq = (a, b) => Array.isArray(a) && a.length === b.length && a.every((x, i) => +x === b[i]);
+  if (eq(S.cal.sandWeigh, [15.5])) S.cal.sandWeigh = [15.35];
+  if (eq(S.cal.gravelWeigh, [15.5])) S.cal.gravelWeigh = [14.65];
   const p = (S.grades || []).find((g) => g.id === 'gpile');
   if (p && +p.tslump === 16) p.tslump = 18;
-  if (!(+S.moist.sandWet > 0) && !(+S.moist.sandDry > 0)) {
-    S.moist.sandWet = 1000; S.moist.sandDry = 909; S.moist.useSand = true;
-  }
   S.rev = REV;
   save();
 }
@@ -254,11 +273,20 @@ function snapshot() {
   const mS = moistureOf('sand'), mG = moistureOf('gravel');
   const dryS = sandSSD / (1 + absS / 100), dryG = gravSSD / (1 + absG / 100);
   let wetSand = sandSSD, wetGrav = gravSSD, creditS = 0, creditG = 0;
-  if (mS != null) { wetSand = dryS * (1 + mS); creditS = Math.max(0, dryS * (mS - absS / 100)); }
-  if (mG != null) { wetGrav = dryG * (1 + mG); creditG = Math.max(0, dryG * (mG - absG / 100)); }
+  /* THE CREDIT IS ALLOWED TO GO NEGATIVE, and that is the core of v1.17.0.
+     Below SSD an aggregate drinks instead of giving. A drained vesicular stone
+     takes ~6 L out of a 36 L budget, and the old floor at zero silently signed
+     that problem over to the crew — who see a stiff mix and reach for the hose,
+     the one failure the whole water ceiling exists to prevent. A negative credit
+     is not an oddity to apologise for, it is an instruction: that many litres go
+     in WITH the aggregate, before the cement, or the paste gets them instead. */
+  if (mS != null) { wetSand = dryS * (1 + mS); creditS = dryS * (mS - absS / 100); }
+  if (mG != null) { wetGrav = dryG * (1 + mG); creditG = dryG * (mG - absG / 100); }
+  const credit = creditS + creditG;
+  const preWet = Math.max(0, -credit);       // litres to add with the aggregate, first
 
-  const waterCorrected = Math.max(0, waterDesign - creditS - creditG);
-  const ceilingNet = Math.max(0, waterCeiling - creditS - creditG);
+  const waterCorrected = Math.max(0, waterDesign - credit);
+  const ceilingNet = Math.max(0, waterCeiling - credit);
 
   // Volume from SSD masses + all water in the mix (poured + aggregate free water).
   const vol = (Cact / SG.cement + sandSSD / SG.sand + gravSSD / SG.gravel + (waterCorrected + creditS + creditG + spL) / 1000) / (1 - AIR);
@@ -266,7 +294,7 @@ function snapshot() {
   const bS = bucketKg('sand'), bG = bucketKg('gravel');
   return {
     g, sack, n, Cnom, Cact, sandSSD, gravSSD, waterDesign, waterCeiling, spL, spPct, spCapped: spCapped(g),
-    mS, mG, creditS, creditG, wetSand, wetGrav, waterCorrected, ceilingNet, vol,
+    mS, mG, creditS, creditG, credit, preWet, wetSand, wetGrav, waterCorrected, ceilingNet, vol,
     bS, bG,
     bucketSand: bS > 0 ? wetSand / bS : null,
     bucketGrav: bG > 0 ? wetGrav / bG : null,
@@ -292,11 +320,11 @@ function snapshot() {
    as a plain ±. */
 const UNC = {
   moistMeasured: 0.005,        // ±0.5 % — 1 g on a 200 g sample plus sampling error
-  moistSandUnmeasured: 0.039,  // credit 0, truth 0–13.5 % free (15 % wet − 1.5 % absorbed) → 13.5/√12
-  moistGravelUnmeasured: 0.0121, // credit 0, truth 0–4.2 % free (5 % wet − 0.8 % absorbed) → 4.2/√12
+  moistSandUnmeasured: 0.0115, // credit 0, truth 0–4 % free (15 % wet − 12 % absorbed) → 4/√12
+  moistGravelUnmeasured: 0.0087, // credit 0, truth 0–3 % free (9 % wet − 5.63 % absorbed) → 3/√12
   absMeasured: 0.003,          // a 24 h soak repeats to about ±0.3 %
-  absSandUnmeasured: 0.0066,   // 1.5 % assumed, true 0.7–3.0 % → width 2.3/√12
-  absGravelUnmeasured: 0.0092, // 0.8 % assumed, true 0.8–4.0 % → width 3.2/√12
+  absSandUnmeasured: 0.0346,   // 12 % assumed, plausible 6–18 % → width 12/√12
+  absGravelUnmeasured: 0.0173, // 5.63 % assumed, plausible 3–9 % → width 6/√12
   jug: 0.5                     // litres, measuring by eye into a jerrycan
 };
 /* Practical extremes for the one-sided range, as fractions of dry mass. Kept
@@ -304,11 +332,11 @@ const UNC = {
    absorption can only REMOVE it. A symmetric ± would misrepresent the risk. */
 const UNC_RANGE = {
   moistMeasured: [-0.005, 0.005],
-  moistSandUnmeasured: [0, 0.135],
-  moistGravelUnmeasured: [0, 0.042],
+  moistSandUnmeasured: [0, 0.04],
+  moistGravelUnmeasured: [0, 0.03],
   absMeasured: [-0.003, 0.003],
-  absSandUnmeasured: [-0.015, 0.008],
-  absGravelUnmeasured: [-0.032, 0]
+  absSandUnmeasured: [-0.06, 0.06],
+  absGravelUnmeasured: [-0.0263, 0.0337]
 };
 
 function waterBudget(s) {
@@ -564,7 +592,7 @@ function viewBatch() {
     ${infoNote('buckets')}
     <div class="stat" style="margin-top:12px"><span class="k">${t('Start water')} (${S.startWaterPct}%) ${infoBtn('start')}</span><span class="v"><span id="o-startW">—</span><span class="unit">L</span></span></div>
     ${infoNote('start')}
-    <div class="stat" id="row-credit" style="display:none"><span class="k">${t('Water in aggregate')}</span><span class="v"><span id="o-credit">—</span><span class="unit">L</span></span></div>
+    <div class="stat" id="row-credit" style="display:none"><span class="k" id="o-creditK">${t('Water in aggregate')}</span><span class="v"><span id="o-credit">—</span><span class="unit">L</span></span></div>
     <div class="stat limit"><span class="k">⛔ ${t('Max total water')} ${infoBtn('ceil')}</span><span class="v"><span id="o-ceilW">—</span><span class="unit">L</span></span></div>
     <div class="fine" id="o-ceilNote" style="margin:6px 2px 0"></div>
     ${infoNote('ceil')}
@@ -633,7 +661,13 @@ function syncBatch() {
   set('o-ceilNote', Math.abs(margin) < 0.05
     ? (LANG === 'id' ? 'tanpa cadangan semen' : 'no cement buffer set')
     : (LANG === 'id' ? `cadangan semen ${nf(margin, 1)} L` : `cement buffer margin ${nf(margin, 1)} L`));
-  set('o-credit', nf(s.creditS + s.creditG, 1));
+  /* The credit row says which way the water is going: a positive number is water
+     the aggregate brings, a negative one is water it takes and that has to be put
+     in with the stone. Showing "-6.0 L credited" would be a lie with a minus on
+     it, so the label flips with the sign and the value is always positive. */
+  set('o-credit', nf(Math.abs(s.credit), 1));
+  const ckEl = document.getElementById('o-creditK');
+  if (ckEl) ckEl.textContent = s.preWet > 0.05 ? t('Water the aggregate takes') : t('Water in aggregate');
   /* Water uncertainty: an honest range instead of a single number. Reads the
      same budget the INFO note explains, and shrinks as tests are entered. */
   const B = s.band;
@@ -661,7 +695,7 @@ function syncBatch() {
       + `${B.nMeasured}/5 ${LANG === 'id' ? 'terukur' : 'measured'}</div>`;
   }
   const rowCredit = document.getElementById('row-credit');
-  if (rowCredit) rowCredit.style.display = (s.creditS + s.creditG) > 0.05 ? '' : 'none';
+  if (rowCredit) rowCredit.style.display = Math.abs(s.credit) > 0.05 ? '' : 'none';
   set('o-sp', nf(s.spL * 1000, 0));
   set('o-spPct', `(${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari semen' : 'of cement'})`);
   set('o-vol', nf(s.vol, 3));
@@ -671,12 +705,26 @@ function syncBatch() {
 
   const w = [];
   if (pct > 65) w.push(`<div class="note danger"><b>${t('Over capacity')}</b> — ${nf(s.vol, 3)} m³ = ${pct}% ${LANG === 'id' ? `dari molen ${S.mixerL} L` : `of the ${S.mixerL} L mixer`}. ${LANG === 'id' ? 'Kurangi karung.' : 'Reduce sacks.'}</div>`);
-  if (s.mS != null && s.creditS > 0) w.push(`<div class="note info">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ${t('Moisture').toLowerCase()} → ${nf(s.creditS, 1)} L ${LANG === 'id' ? 'dikurangi dari air' : 'credited to the mix'}</div>`);
-  if (s.mS != null && s.creditS <= 0) w.push(`<div class="note warn">${t('Sand')}: ${(s.mS * 100).toFixed(1)}% ≤ ${t('Absorption').toLowerCase()} ${S.moist.sandAbs}% → ${LANG === 'id' ? 'tidak ada air bebas' : 'no free water, no credit'}</div>`);
+  /* One line per aggregate, signed. Below absorption the stone does not merely
+     "credit nothing" — it takes water out of the paste, and that many litres have
+     to go in with it. Saying "no free water, no credit" hid a 6 L hole. */
+  const aggNote = (name, m, cred, absPct) => {
+    if (m == null) return;
+    const pct = (m * 100).toFixed(1);
+    if (cred > 0.05) {
+      w.push(`<div class="note info">${name}: ${pct}% ${t('Moisture').toLowerCase()} → ${nf(cred, 1)} L ${LANG === 'id' ? 'dikurangi dari air' : 'credited to the mix'}</div>`);
+    } else if (cred < -0.05) {
+      w.push(`<div class="note warn"><b>${name}: ${nf(-cred, 1)} L ${LANG === 'id' ? 'diserap batu' : 'absorbed by the stone'}</b> — ${pct}% ${t('Moisture').toLowerCase()} vs ${nf(absPct, 1)}% ${t('Absorption').toLowerCase()}. ${LANG === 'id' ? 'Tuang bersama agregat dulu, sebelum semen dan sisa air.' : 'Put it in with the aggregate first, before the cement and the rest of the water.'}</div>`);
+    } else {
+      w.push(`<div class="note info">${name}: ${pct}% ≈ ${nf(absPct, 1)}% ${t('Absorption').toLowerCase()} → ${LANG === 'id' ? 'tidak ada air bebas ke dua arah' : 'no free water either way — at SSD'}</div>`);
+    }
+  };
+  aggNote(t('Sand'), s.mS, s.creditS, +S.moist.sandAbs || 0);
+  aggNote(t('Gravel'), s.mG, s.creditG, +S.moist.gravelAbs || 0);
   if (s.spCapped) w.push(`<div class="note danger"><b>${t('Dose capped')}</b> — ${LANG === 'id'
     ? `resep minta ${nf(s.g.sp, 2)}% tetapi maksimum ${nf(spCapOfG(s.g), 2)}%. Dipakai ${nf(s.spPct, 2)}%.`
     : `recipe asks ${nf(s.g.sp, 2)}% but the max is ${nf(spCapOfG(s.g), 2)}%. Using ${nf(s.spPct, 2)}%.`}</div>`);
-  if (s.spL > 0) w.push(`<div class="note info">${t('Plasticizer')}: ${nf(s.spL * 1000, 0)} mL = ${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari berat semen' : 'of cement weight'}. ${LANG === 'id' ? 'Encerkan dalam air, jangan tuang ke bahan kering. Aduk basah 5 menit.' : 'Dilute in the water — never onto dry material. Wet mix 5 minutes.'}</div>`);
+  if (s.spL > 0) w.push(`<div class="note info">${t('Plasticizer')}: ${nf(s.spL * 1000, 0)} mL = ${nf(s.spPct, 2)}% ${LANG === 'id' ? 'dari berat semen' : 'of cement weight'}. ${LANG === 'id' ? 'Jangan ke bahan kering — ke air, atau langsung ke campuran basah yang berputar. Aduk basah 5 menit.' : 'Never onto dry material — into the water, or straight into the turning wet mix. Wet mix 5 minutes.'}</div>`);
   const wEl = document.getElementById('warn'); if (wEl) wEl.innerHTML = w.join('');
   if (wEl && !w.length) wEl.innerHTML = '';
 }
@@ -693,12 +741,24 @@ function stageSteps(L) {
       ? `${full} ${t('buckets')} · ${nf(kg, 1)} kg`
       : `${full} ${t('buckets')} + ${rem.toFixed(2)} · ${nf(kg, 1)} kg`;
   };
-  const out = [
+  const out = [];
+  /* Below SSD the aggregate drinks, and no amount of arithmetic in the water row
+     can say so: this is the one step that has to be physical. It goes FIRST,
+     before sand, cement or the main water, because the pore volume fills from the
+     stone side. Above SSD the row simply does not exist. */
+  if (+L.preWet > 0.3) out.push({
+    m: id ? 'Air ke kerikil' : 'Pre-wet the stone',
+    s: `${nf(L.preWet, 1)} L ${id ? 'bersama kerikil, aduk 1 menit — sebelum pasir dan semen' : 'with the stone, tumble 1 min — before sand and cement'}`
+  });
+  out.push(
     { m: t('Sand'), s: buckets(L.bucketSand, L.bS, L.wetSand) },
     { m: t('Gravel'), s: buckets(L.bucketGrav, L.bG, L.wetGrav) },
     { m: t('Cement'), s: `${nf(L.n, L.n % 1 ? 1 : 0)} × ${L.sack} kg = ${nf(L.Cact, 0)} kg` },
-    { m: id ? 'Aduk kering' : 'Dry mix', s: id ? 'pasir + kerikil 1 menit, lalu semen, aduk 1 menit' : 'sand + gravel 1 min, then cement, mix 1 min' }
-  ];
+    /* Cement onto a DRY drum skins the blades; cement onto damp aggregate coats
+       the grains, which is what we want. So a splash of the batch water goes in
+       first — it comes out of the start water, never on top of it. */
+    { m: id ? 'Isi drum' : 'Charge', s: id ? '1–2 L air dulu, lalu pasir + kerikil 1 menit, lalu semen, aduk 1 menit' : '1–2 L of the start water first, then sand + gravel 1 min, then cement, mix 1 min' }
+  );
   out.push({ m: t('Start water'), s: `${nf(L.startWater, 1)} L — ${id ? 'aduk basah 5 menit, lalu uji' : 'wet mix 5 min, then test'}` });
   out.push({ m: t('Slump test'), s: id ? 'ukur, lalu masukkan angkanya di bawah' : 'measure, then enter the reading below' });
   /* Held back, not dosed up front: pingo pours the whole water budget first and buys the last
@@ -1413,7 +1473,7 @@ function startBatch() {
     sack: s.sack, n: s.n, Cnom: s.Cnom, Cact: s.Cact, wc: s.g.wc,
     sandSSD: s.sandSSD, gravSSD: s.gravSSD, wetSand: s.wetSand, wetGrav: s.wetGrav,
     waterCorrected: s.waterCorrected, ceilingNet: s.ceilingNet, vol: s.vol, spL: s.spL,
-    mS: s.mS, mG: s.mG, creditS: s.creditS, creditG: s.creditG,
+    mS: s.mS, mG: s.mG, creditS: s.creditS, creditG: s.creditG, credit: s.credit, preWet: s.preWet,
     bucketSand: s.bucketSand, bucketGrav: s.bucketGrav, bS: s.bS, bG: s.bG,
     poured: 0, nextAdd: s.startWater, rows: [], slumps: [], notes: '', bufferPct: +S.bufferPct || 0,
     pour: String(S.pourTag || '').trim(), steps: [], startWater: s.startWater,
