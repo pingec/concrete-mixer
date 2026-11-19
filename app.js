@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.17.3';
+const VERSION = '1.17.4';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -135,7 +135,10 @@ const DEFAULTS = () => ({
   spDensity: 1.06,
   sigmaMPa: 5,
   pourTag: '',
-  cal: { tare: 0, bucketL: 11, sandWeigh: [15.35], gravelWeigh: [14.65], date: new Date().toISOString().slice(0, 10) },
+  /* Pail weight is a property of the STOCK, not of the material. 15.35 kg was the pasir
+     pasang pile (1395 kg/m³ loose); on 2026-11-19 the barrow held pasir cor, rain-wet,
+     16.0 kg net in the same 11 L pail = 1455 kg/m³. */
+  cal: { tare: 0, bucketL: 11, sandWeigh: [16], gravelWeigh: [14.65], date: new Date().toISOString().slice(0, 10) },
   /* MEASURED ON PINGO'S DALUNG STOCK, 2026-11-18. Both aggregates are the same
      vesicular volcanic rock: 5.63 % absorption at 10-20 mm (24 h soak, 1040.6 g
      SSD -> 985.1 g dry) and 9.71 % at 0-5 mm (24 h soak, cone-tested to SSD,
@@ -189,8 +192,13 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e
 
    REV 4 (v1.17.1, 2026-11-18, same day) replaces the inferred 12 % sand absorption
    with the measured 9.71 % once the 24 h soak and cone test came back, and moves
-   the sand sample to the 438.1/386.1 g reading taken on the soaked sample. */
-const REV = 4;
+   the sand sample to the 438.1/386.1 g reading taken on the soaked sample.
+
+   REV 5 (v1.17.4, 2026-11-19) moves the sand pail from 15.35 kg to 16.0 kg: the sand
+   on site is now pasir cor, weighed rain-wet, 16.0 kg net in the 11 L pail
+   (1455 kg/m³ loose) against 1395 kg/m³ for the pasir pasang. One pail weight cannot
+   serve two piles — put 15.35 back by hand if the pasir pasang barrow returns. */
+const REV = 5;
 function revise() {
   if ((+S.rev || 0) >= REV) return;
   const m = S.moist;
@@ -206,6 +214,8 @@ function revise() {
   const eq = (a, b) => Array.isArray(a) && a.length === b.length && a.every((x, i) => +x === b[i]);
   if (eq(S.cal.sandWeigh, [15.5])) S.cal.sandWeigh = [15.35];
   if (eq(S.cal.gravelWeigh, [15.5])) S.cal.gravelWeigh = [14.65];
+  /* REV 5: pasir cor, rain-wet, 16.0 kg net in the 11 L pail. */
+  if (eq(S.cal.sandWeigh, [15.35])) S.cal.sandWeigh = [16];
   const p = (S.grades || []).find((g) => g.id === 'gpile');
   if (p && +p.tslump === 16) p.tslump = 18;
   S.rev = REV;
