@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.17.1';
+const VERSION = '1.17.2';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -752,15 +752,17 @@ function stageSteps(L) {
     s: `${nf(L.preWet, 1)} L ${id ? 'bersama kerikil, aduk 1 menit — sebelum pasir dan semen' : 'with the stone, tumble 1 min — before sand and cement'}`
   });
   out.push(
+    /* WATER FIRST, and most of it — not a splash. Tested in pingo's drum 2026-11-18:
+       aggregate + 1-2 L + cement produced stone balls coated in cement, because with
+       no free water the cement tacks onto damp stone skins and hydrates there. The
+       cement needs litres to disperse into, not dampness. Total water is unchanged —
+       the trade is WHEN the litres go in. */
+    { m: t('Start water'), s: `${nf(L.startWater, 1)} L ${id ? 'masukkan DULUAN, aduk 1 menit — semen butuh air bebas, bukan sekadar lembap' : 'into the drum FIRST, tumble 1 min — cement needs free water to disperse, not dampness'}` },
     { m: t('Sand'), s: buckets(L.bucketSand, L.bS, L.wetSand) },
     { m: t('Gravel'), s: buckets(L.bucketGrav, L.bG, L.wetGrav) },
-    { m: t('Cement'), s: `${nf(L.n, L.n % 1 ? 1 : 0)} × ${L.sack} kg = ${nf(L.Cact, 0)} kg` },
-    /* Cement onto a DRY drum skins the blades; cement onto damp aggregate coats
-       the grains, which is what we want. So a splash of the batch water goes in
-       first — it comes out of the start water, never on top of it. */
-    { m: id ? 'Isi drum' : 'Charge', s: id ? '1–2 L air dulu, lalu pasir + kerikil 1 menit, lalu semen, aduk 1 menit' : '1–2 L of the start water first, then sand + gravel 1 min, then cement, mix 1 min' }
+    { m: t('Cement'), s: `${nf(L.n, L.n % 1 ? 1 : 0)} × ${L.sack} kg = ${nf(L.Cact, 0)} kg — ${id ? 'aduk 2 menit' : 'mix 2 min'}` },
+    { m: id ? 'Sisa air' : 'Trim water', s: `${nf(Math.max(0, L.waterCorrected - L.startWater), 1)} L — ${id ? 'aduk basah 5 menit, lalu uji' : 'wet mix 5 min, then test'}` }
   );
-  out.push({ m: t('Start water'), s: `${nf(L.startWater, 1)} L — ${id ? 'aduk basah 5 menit, lalu uji' : 'wet mix 5 min, then test'}` });
   out.push({ m: t('Slump test'), s: id ? 'ukur, lalu masukkan angkanya di bawah' : 'measure, then enter the reading below' });
   /* Held back, not dosed up front: pingo pours the whole water budget first and buys the last
      few centimetres with plasticizer only if the cone reads short. Listed after the slump test
