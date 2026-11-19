@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.17.0';
+const VERSION = '1.17.1';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -138,15 +138,16 @@ const DEFAULTS = () => ({
   cal: { tare: 0, bucketL: 11, sandWeigh: [15.35], gravelWeigh: [14.65], date: new Date().toISOString().slice(0, 10) },
   /* MEASURED ON PINGO'S DALUNG STOCK, 2026-11-18. Both aggregates are the same
      vesicular volcanic rock: 5.63 % absorption at 10-20 mm (24 h soak, 1040.6 g
-     SSD -> 985.1 g dry) and ~12 % at 0-5 mm. Absorption rises as the rock is
-     crushed finer because more pore volume is opened — and a batch that stood at
-     16 cm on water alone can only be explained by a sand credit near zero, so 12 %
-     is the value the concrete itself demanded, not a guess carried over from the
-     coarse stone.
-     The consequence to keep in view: at these moistures the aggregate carries
-     almost NO free water, so the w/c water comes out of the jug, not out of the
-     sand. Before v1.17.0 the app credited ~8.8 L per sack that was not there. */
-  moist: { useSand: true, sandWet: 1044.6, sandDry: 929.1, useGravel: true, gravelWet: 1133.1, gravelDry: 1072.1, sandAbs: 12, gravelAbs: 5.63, sandAbsMeasured: false, gravelAbsMeasured: true },
+     SSD -> 985.1 g dry) and 9.71 % at 0-5 mm (24 h soak, cone-tested to SSD,
+     423.6 -> 386.1 g dry). Absorption rises as the rock is crushed finer because
+     more pore volume is opened — the sand reading is 1.7x the coarse one, and
+     both are 5-12x the quartz defaults.
+     The consequence to keep in view: this sand at 12-13 % moisture sits only a
+     few points above its own SSD, so it gives the mix 2-3 L of free water per
+     sack, not the 8.8 L a 2.5 % default credited. The w/c water comes out of the
+     jug. A first draft inferred 12 % from a batch slump; the soak says 9.71 %,
+     which is why an inferred absorption is a placeholder and never a default. */
+  moist: { useSand: true, sandWet: 438.1, sandDry: 386.1, useGravel: true, gravelWet: 1133.1, gravelDry: 1072.1, sandAbs: 9.71, gravelAbs: 5.63, sandAbsMeasured: true, gravelAbsMeasured: true },
   prices: { cement: 64000, sandPerM3: 310000, gravelPerM3: 340000, spPerL: 55000, waterPerM3: 0, rmxPerM3: 1400000 },
   log: [],
   live: null
@@ -186,19 +187,19 @@ function save() { try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e
    if it is still exactly an old default, so a number typed by hand is never
    touched. Gated by S.rev, so it runs once and never again.
 
-   REV 3 (v1.17.0, 2026-11-18) carries the day's measurements: absorption
-   2.5 -> 12 % (sand) and 0.8 -> 5.63 % (koral, now MEASURED), the two moisture
-   samples, and the bucket calibration at zero tare. Everything is guarded by an
-   exact equality test against the value it replaces. */
-const REV = 3;
+   REV 4 (v1.17.1, 2026-11-18, same day) replaces the inferred 12 % sand absorption
+   with the measured 9.71 % once the 24 h soak and cone test came back, and moves
+   the sand sample to the 438.1/386.1 g reading taken on the soaked sample. */
+const REV = 4;
 function revise() {
   if ((+S.rev || 0) >= REV) return;
   const m = S.moist;
-  /* Absorption: 1.5 % was the pre-v1.16 default, 2.5 % the v1.16 one. */
-  if (+m.sandAbs === 1.5 || +m.sandAbs === 2.5) m.sandAbs = 12;
+  /* Absorption: 1.5 % pre-v1.16, 2.5 % v1.16, 12 % the same-morning inference. */
+  if (+m.sandAbs === 1.5 || +m.sandAbs === 2.5 || +m.sandAbs === 12) { m.sandAbs = 9.71; m.sandAbsMeasured = true; }
   if (+m.gravelAbs === 0.8) { m.gravelAbs = 5.63; m.gravelAbsMeasured = true; }
-  /* Moisture samples: 1000/909 was the v1.16 seed, never a hand entry. */
-  if (+m.sandWet === 1000 && +m.sandDry === 909) { m.sandWet = 1044.6; m.sandDry = 929.1; }
+  /* Moisture samples: 1000/909 was the v1.16 seed, 1044.6/929.1 the morning reading. */
+  if (+m.sandWet === 1000 && +m.sandDry === 909) { m.sandWet = 438.1; m.sandDry = 386.1; }
+  if (+m.sandWet === 1044.6 && +m.sandDry === 929.1) { m.sandWet = 438.1; m.sandDry = 386.1; }
   if (!(+m.gravelWet > 0) && !(+m.gravelDry > 0)) { m.gravelWet = 1133.1; m.gravelDry = 1072.1; m.useGravel = true; }
   /* Bucket calibration: 0.5 kg tare with two 15.5 kg gross readings. */
   if (+S.cal.tare === 0.5) S.cal.tare = 0;
