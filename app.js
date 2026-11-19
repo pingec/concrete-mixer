@@ -4,7 +4,7 @@
    Single-page, no dependencies, localStorage state, PWA-installable.
    =========================================================================== */
 
-const VERSION = '1.17.2';
+const VERSION = '1.17.3';
 
 /* ---------------------------------------------------------------- i18n --- */
 const ID = {
@@ -767,7 +767,7 @@ function stageSteps(L) {
   /* Held back, not dosed up front: pingo pours the whole water budget first and buys the last
      few centimetres with plasticizer only if the cone reads short. Listed after the slump test
      so the sheet matches what the crew does, not what the recipe assumes. */
-  if (L.spL > 0) out.push({ m: t('Plasticizer'), s: `${nf(L.spL * 1000, 0)} mL ${id ? 'ditahan — hanya jika slump kurang; langsung ke drum yang berputar' : 'held back — only if the slump is short; straight into the turning drum'}` });
+  if (L.spL > 0) out.push({ m: t('Plasticizer'), s: `${nf(L.spL * 1000, 0)} mL ${id ? 'ditahan — hanya jika slump kurang; encerkan dalam ~1 L air dari anggaran, lalu tuang ke drum berputar' : 'held back — only if the slump is short; stir it into ~1 L of the reserved water and pour that into the turning drum'}` });
   return out;
 }
 
